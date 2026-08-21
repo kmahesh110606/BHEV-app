@@ -1,0 +1,25 @@
+name: uei_app
+description: UEI Hackathon MVP Flutter app scaffold
+version: 0.1.0
+environment:
+  sdk: '>=2.18.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.6.0
+  provider: ^6.1.4
+  qr_flutter: ^4.0.0
+  # qr_code_scanner removed temporarily to avoid Android Gradle issues
+  flutter_blue_plus: ^1.4.0
+  google_fonts: ^6.0.0
+  animations: ^2.0.6
+  fluentui_system_icons: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
