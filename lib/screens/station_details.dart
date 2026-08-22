@@ -618,6 +618,14 @@ class _BookingResultScreenState extends State<BookingResultScreen> {
                 const SizedBox(height: 8),
                 SizedBox(
                     width: double.infinity,
+                    child: OutlinedButton.icon(
+                        onPressed: () =>
+                            Navigator.pushNamed(context, '/scan-kiosk'),
+                        icon: const Icon(FluentIcons.qr_code_24_regular),
+                        label: const Text('Scan kiosk QR with camera'))),
+                const SizedBox(height: 8),
+                SizedBox(
+                    width: double.infinity,
                     child: OutlinedButton(
                         onPressed: () => Navigator.push(
                             context,

@@ -5,6 +5,8 @@ import 'screens/login_screen.dart';
 import 'screens/app_shell.dart';
 import 'screens/operator_home_screen.dart';
 import 'screens/kiosk_screen.dart';
+import 'screens/qr_verification_screen.dart';
+import 'screens/sessions_screen.dart';
 
 const backendBase = String.fromEnvironment(
   'CHARGEGRID_API_URL',
@@ -78,6 +80,8 @@ class MyApp extends StatelessWidget {
         '/customer': (ctx) => const AppShell(),
         '/operator': (ctx) => const OperatorHomeScreen(),
         '/kiosk': (ctx) => const KioskScreen(),
+        '/scan-kiosk': (ctx) => const QrVerificationScreen(),
+        '/sessions': (ctx) => const SessionsScreen(),
       },
       initialRoute: '/',
     );

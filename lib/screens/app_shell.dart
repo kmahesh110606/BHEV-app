@@ -241,8 +241,8 @@ class _ModuleGrid extends StatelessWidget {
               icon: FluentIcons.qr_code_24_regular,
               color: const Color(0xFFF39BBE),
               title: 'QR Arrival',
-              description: 'Secure station verification',
-              onTap: () => onNavigate(3)),
+              description: 'Camera verification at kiosk',
+              onTap: () => Navigator.pushNamed(context, '/scan-kiosk')),
         ],
       );
 }
@@ -427,9 +427,9 @@ class _MoreModule extends StatelessWidget {
         _MoreOption(
             icon: FluentIcons.qr_code_24_regular,
             title: 'QR arrival verification',
-            detail: 'Verify a booked connector at the station',
+            detail: 'Open camera and verify the kiosk QR',
             color: const Color(0xFFF39BBE),
-            onTap: () => Navigator.pushNamed(context, '/kiosk')),
+            onTap: () => Navigator.pushNamed(context, '/scan-kiosk')),
         const _MoreOption(
             icon: FluentIcons.vehicle_car_24_regular,
             title: 'My EV profile',

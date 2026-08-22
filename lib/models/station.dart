@@ -86,23 +86,58 @@ class Station {
         : <String, dynamic>{};
     final connectorData =
         json['connectors'] is List ? json['connectors'] as List : const [];
+    final connectorTypes = json['connector_types'] is List
+        ? (json['connector_types'] as List)
+            .map((item) => item.toString())
+            .where((item) => item.isNotEmpty)
+            .toList()
+        : json['connector_categories'] is List
+            ? (json['connector_categories'] as List)
+                .map((item) => item.toString())
+                .where((item) => item.isNotEmpty)
+                .toList()
+            : const <String>[];
+    final ratings = json['charger_ratings_kw'];
+    final fallbackPowerSource = json['maxPowerKw'] ??
+        json['max_power_kw'] ??
+        (ratings is List && ratings.isNotEmpty ? ratings.first : 0);
+    final fallbackPower = double.tryParse('$fallbackPowerSource') ?? 0;
+    final parsedConnectors = connectorData
+        .whereType<Map>()
+        .map((item) => Connector.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+    final connectors = parsedConnectors.isNotEmpty
+        ? parsedConnectors
+        : connectorTypes
+            .map((standard) => Connector(
+                  id: '${json['id'] ?? 'station'}-$standard',
+                  standard: standard,
+                  powerType: standard.toLowerCase().contains('dc') ? 'DC' : 'AC',
+                  maxPowerKw: fallbackPower,
+                  status: 'AVAILABLE',
+                  visualState: 'FREE',
+                  kioskColor: 'GREEN',
+                  label: 'Registry available',
+                ))
+            .toList();
     return Station(
       id: json['id']?.toString() ?? '',
       name: json['name']?.toString() ?? '',
       lat: double.tryParse(json['latitude'].toString()) ?? 0,
       lng: double.tryParse(json['longitude'].toString()) ?? 0,
-      address: json['address']?.toString() ?? '',
-      city: json['city']?.toString() ?? '',
-      operatorName: operator['name']?.toString() ?? 'Unknown operator',
+      address: (json['address'] ?? json['location'])?.toString() ?? '',
+      city: json['city']?.toString() ??
+          json['district']?.toString() ??
+          '',
+      operatorName:
+          operator['name']?.toString() ?? json['cpo']?.toString() ?? 'Unknown operator',
       isMock: operator['isMock'] == true,
       rating: double.tryParse(json['rating'].toString()) ?? 0,
       reliabilityScore: int.tryParse(reliability['score'].toString()) ?? 0,
       availableConnectors:
-          int.tryParse(json['availableConnectors'].toString()) ?? 0,
-      connectors: connectorData
-          .whereType<Map>()
-          .map((item) => Connector.fromJson(Map<String, dynamic>.from(item)))
-          .toList(),
+          int.tryParse(json['availableConnectors'].toString()) ??
+              connectors.length,
+      connectors: connectors,
       chargerStatus: json['chargerStatus']?.toString() ?? 'UNKNOWN',
       nextAvailableMins:
           int.tryParse(json['nextAvailableMins'].toString()) ?? 0,

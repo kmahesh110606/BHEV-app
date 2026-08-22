@@ -71,11 +71,9 @@ class _HomeScreenState extends State<HomeScreen> {
             builder: (context, snapshot) {
               if (snapshot.connectionState != ConnectionState.done)
                 return const _DiscoveryLoading();
-              if (snapshot.hasError)
-                return _DiscoveryError(
-                    error: snapshot.error.toString(), onRetry: _reload);
-              final liveStations = snapshot.data ?? const <Station>[];
-              final usingDemo = liveStations.isEmpty;
+              final liveStations =
+                  snapshot.hasError ? const <Station>[] : snapshot.data ?? const <Station>[];
+              final usingDemo = snapshot.hasError || liveStations.isEmpty;
               final stations =
                   _filterStations(usingDemo ? demoStations : liveStations);
               return Stack(
@@ -600,30 +598,3 @@ class _DiscoveryLoading extends StatelessWidget {
       ]));
 }
 
-class _DiscoveryError extends StatelessWidget {
-  final String error;
-  final Future<void> Function() onRetry;
-  const _DiscoveryError({required this.error, required this.onRetry});
-  @override
-  Widget build(BuildContext context) => Center(
-      child: Padding(
-          padding: const EdgeInsets.all(28),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(FluentIcons.wifi_off_24_regular,
-                size: 36, color: Color(0xFFFFB3AD)),
-            const SizedBox(height: 12),
-            const Text('We could not refresh stations',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            Text(error,
-                textAlign: TextAlign.center,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Color(0xFF9CAABD), fontSize: 12)),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(FluentIcons.arrow_sync_24_regular),
-                label: const Text('Try again')),
-          ])));
-}

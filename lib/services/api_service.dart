@@ -31,9 +31,16 @@ class ApiService {
         await http.patch(uri, headers: headers, body: json.encode(body ?? {})),
       _ => await http.get(uri, headers: headers),
     };
-    final decoded = response.body.isEmpty
-        ? <String, dynamic>{}
-        : Map<String, dynamic>.from(json.decode(response.body) as Map);
+    dynamic rawDecoded;
+    try {
+      rawDecoded =
+          response.body.isEmpty ? <String, dynamic>{} : json.decode(response.body);
+    } catch (_) {
+      rawDecoded = {'message': response.body};
+    }
+    final decoded = rawDecoded is Map
+        ? Map<String, dynamic>.from(rawDecoded)
+        : <String, dynamic>{'message': response.body};
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(decoded['error'] ?? decoded['message'] ?? response.body);
     }
@@ -44,12 +51,18 @@ class ApiService {
       {String? query, String? connector}) async {
     final params = <String, String>{
       if (query?.isNotEmpty == true) 'q': query!,
-      if (connector?.isNotEmpty == true) 'connector': connector!
+      if (connector?.isNotEmpty == true) 'connector': connector!,
+      'limit': '700',
     };
-    final res = await http.get(
-        Uri.parse('$baseUrl/api/v1/stations').replace(queryParameters: params));
-    if (res.statusCode != 200)
+    var res = await http.get(Uri.parse('$baseUrl/api/v1/stations/national')
+        .replace(queryParameters: params));
+    if (res.statusCode != 200) {
+      res = await http.get(Uri.parse('$baseUrl/api/v1/stations')
+          .replace(queryParameters: params));
+    }
+    if (res.statusCode != 200) {
       throw Exception('Station discovery failed: ${res.body}');
+    }
     final data = json.decode(res.body) as Map<String, dynamic>;
     return (data['data'] as List)
         .map((item) => Station.fromJson(Map<String, dynamic>.from(item)))
@@ -113,11 +126,14 @@ class ApiService {
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 
-  Future<Map<String, dynamic>> verifyArrival(
-      String bookingId, String token) async {
+  Future<Map<String, dynamic>> verifyArrival(String token,
+      {String? bookingId}) async {
     final res = await http.post(Uri.parse('$baseUrl/api/v1/arrivals/verify'),
         headers: _headers,
-        body: json.encode({'bookingId': bookingId, 'token': token}));
+        body: json.encode({
+          if (bookingId?.isNotEmpty == true) 'bookingId': bookingId,
+          'token': token
+        }));
     if (res.statusCode != 200)
       throw Exception('Arrival verification failed: ${res.body}');
     return Map<String, dynamic>.from((json.decode(res.body) as Map)['data']);
@@ -125,13 +141,15 @@ class ApiService {
 
   // ── Driver sessions and payment ────────────────────────────────────────
   Future<Map<String, dynamic>?> activeSession() async {
-    final json = await _request('/api/v1/sessions/active', authenticated: true);
+    final json = await _request('/api/v1/sessions/active',
+        authenticated: AuthService.currentToken != null);
     final data = json['data'];
     return data is Map ? Map<String, dynamic>.from(data) : null;
   }
 
   Future<List<Map<String, dynamic>>> mySessions() async {
-    final json = await _request('/api/v1/sessions/me', authenticated: true);
+    final json = await _request('/api/v1/sessions/me',
+        authenticated: AuthService.currentToken != null);
     final data = json['data'] as List? ?? const [];
     return data
         .whereType<Map>()
