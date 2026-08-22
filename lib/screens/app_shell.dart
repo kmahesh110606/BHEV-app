@@ -440,12 +440,12 @@ class _MoreModule extends StatelessWidget {
             icon: FluentIcons.vehicle_car_24_regular,
             title: 'My EV profile',
             detail: 'Vehicle connector and charging preferences',
-            color: Color(0xFF83E5B2)),
+            color: const Color(0xFF83E5B2)),
         const _MoreOption(
             icon: FluentIcons.payment_24_regular,
             title: 'Payments & wallets',
             detail: 'UPI, cards and charging receipts',
-            color: Color(0xFFFFC66B)),
+            color: const Color(0xFFFFC66B)),
         _MoreOption(
             icon: FluentIcons.building_24_regular,
             title: 'Station operator console',
@@ -456,7 +456,7 @@ class _MoreModule extends StatelessWidget {
             icon: FluentIcons.question_circle_24_regular,
             title: 'Help & support',
             detail: 'Booking, charging and payment help',
-            color: Color(0xFFC5A5FF)),
+            color: const Color(0xFFC5A5FF)),
         const SizedBox(height: 12),
         OutlinedButton.icon(
             onPressed: onSignOut,
