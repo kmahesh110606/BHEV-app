@@ -31,12 +31,14 @@ class ApiService {
         await http.post(uri, headers: headers, body: json.encode(body ?? {})),
       'PATCH' =>
         await http.patch(uri, headers: headers, body: json.encode(body ?? {})),
+      'DELETE' => await http.delete(uri, headers: headers),
       _ => await http.get(uri, headers: headers),
     };
     dynamic rawDecoded;
     try {
-      rawDecoded =
-          response.body.isEmpty ? <String, dynamic>{} : json.decode(response.body);
+      rawDecoded = response.body.isEmpty
+          ? <String, dynamic>{}
+          : json.decode(response.body);
     } catch (_) {
       rawDecoded = {'message': response.body};
     }
@@ -56,8 +58,8 @@ class ApiService {
       if (connector?.isNotEmpty == true) 'connector': connector!,
       'limit': '700',
     };
-    var res = await http.get(Uri.parse('$baseUrl/api/v1/stations')
-        .replace(queryParameters: params));
+    var res = await http.get(
+        Uri.parse('$baseUrl/api/v1/stations').replace(queryParameters: params));
     if (res.statusCode != 200) {
       res = await http.get(Uri.parse('$baseUrl/api/v1/stations/national')
           .replace(queryParameters: params));
@@ -206,13 +208,12 @@ class ApiService {
   // ── Mock Bluetooth/IOT EV profile ─────────────────────────────────────
   Future<Map<String, dynamic>> connectMockEv(
       {String vehicleName = 'Tata Nexon EV Max', String? sessionId}) async {
-    final json = await _request('/api/v1/iot/mock-ev/connect',
-        method: 'POST',
-        body: {
-          'vehicleName': vehicleName,
-          'bluetoothId': 'BHEV-APP-BLE-01',
-          if (sessionId != null) 'sessionId': sessionId,
-        });
+    final json =
+        await _request('/api/v1/iot/mock-ev/connect', method: 'POST', body: {
+      'vehicleName': vehicleName,
+      'bluetoothId': 'BHEV-APP-BLE-01',
+      if (sessionId != null) 'sessionId': sessionId,
+    });
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 
@@ -276,9 +277,7 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> dynamicQr(String stationId) async {
-    final json = await _request(
-        '/api/v1/qr/$stationId',
-        authenticated: true);
+    final json = await _request('/api/v1/qr/$stationId', authenticated: true);
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 
@@ -291,6 +290,74 @@ class ApiService {
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
+  }
+
+  Future<Map<String, dynamic>> operatorProfile() async {
+    final json =
+        await _request('/api/v1/operator/profile', authenticated: true);
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> operatorBookings() =>
+      _operatorList('/api/v1/operator/bookings');
+  Future<List<Map<String, dynamic>>> operatorQueue() =>
+      _operatorList('/api/v1/operator/queue');
+  Future<List<Map<String, dynamic>>> operatorSessions() =>
+      _operatorList('/api/v1/operator/sessions');
+  Future<List<Map<String, dynamic>>> operatorReviews() =>
+      _operatorList('/api/v1/operator/reviews');
+  Future<List<Map<String, dynamic>>> operatorIssues() =>
+      _operatorList('/api/v1/operator/issues');
+  Future<List<Map<String, dynamic>>> operatorNotifications() =>
+      _operatorList('/api/v1/operator/notifications');
+
+  Future<List<Map<String, dynamic>>> _operatorList(String path) async {
+    final json = await _request(path, authenticated: true);
+    final data = json['data'] as List? ?? const [];
+    return data
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+  }
+
+  Future<void> replyToReview(String id, String response) async =>
+      _request('/api/v1/operator/reviews/$id/response',
+          method: 'POST', authenticated: true, body: {'response': response});
+
+  Future<void> updateIssueStatus(String id, String status) async =>
+      _request('/api/v1/operator/issues/$id',
+          method: 'PATCH', authenticated: true, body: {'status': status});
+
+  Future<void> markNotificationRead(String id) async =>
+      _request('/api/v1/operator/notifications/$id/read',
+          method: 'PATCH', authenticated: true);
+
+  Future<Map<String, dynamic>> stationDynamicQr(String stationId) async {
+    final json = await _request(
+        '/api/v1/operator/stations/$stationId/dynamic-qr',
+        authenticated: true);
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  Future<void> deleteStation(String id) async =>
+      _request('/api/v1/operator/stations/$id',
+          method: 'DELETE', authenticated: true);
+
+  Future<void> deleteCharger(String id) async =>
+      _request('/api/v1/operator/chargers/$id',
+          method: 'DELETE', authenticated: true);
+
+  Future<Map<String, dynamic>> updateCharger(
+      String id, Map<String, dynamic> data) async {
+    final json = await _request('/api/v1/operator/chargers/$id',
+        method: 'PATCH', authenticated: true, body: data);
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  Future<Map<String, dynamic>> runNoShowCheck() async {
+    final json = await _request('/api/v1/operator/no-show/check',
+        method: 'POST', authenticated: true);
+    return Map<String, dynamic>.from(json['data'] as Map);
   }
 
   Future<Map<String, dynamic>> addCharger(
@@ -321,7 +388,8 @@ class ApiService {
 
   Future<Map<String, dynamic>> syncMockStations() async {
     try {
-      final json = await _request('/api/v1/operator/stations', authenticated: true);
+      final json =
+          await _request('/api/v1/operator/stations', authenticated: true);
       final list = json['data'] as List? ?? const [];
       return {'locations': list.length, 'connectors': list.length * 2};
     } catch (_) {
