@@ -20,6 +20,7 @@ class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final emailCtrl = TextEditingController();
   final passwordCtrl = TextEditingController();
+  final nameCtrl = TextEditingController();
   final emailCodeCtrl = TextEditingController();
 
   bool isSignup = false;
@@ -36,6 +37,7 @@ class _LoginScreenState extends State<LoginScreen>
     _boltController.dispose();
     emailCtrl.dispose();
     passwordCtrl.dispose();
+    nameCtrl.dispose();
     emailCodeCtrl.dispose();
     super.dispose();
   }
@@ -58,6 +60,7 @@ class _LoginScreenState extends State<LoginScreen>
         final res = await authService.emailSignUp(
           emailCtrl.text.trim(),
           passwordCtrl.text,
+          name: nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : null,
         );
         if (!mounted) return;
         if (res['token'] != null) {
@@ -207,6 +210,15 @@ class _LoginScreenState extends State<LoginScreen>
                           },
                         ),
                         const SizedBox(height: 18),
+                        if (isSignup) ...[
+                          _StyledField(
+                            controller: nameCtrl,
+                            label: 'Full Name',
+                            keyboardType: TextInputType.name,
+                            icon: FluentIcons.person_24_regular,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         _StyledField(
                           controller: emailCtrl,
                           label: 'Email',

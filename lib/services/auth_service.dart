@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/api_config.dart';
 
 class AuthService {
   final String baseUrl;
   static String? currentToken;
   static Map<String, dynamic>? currentUser;
 
-  AuthService(this.baseUrl);
+  AuthService(String baseUrl) : baseUrl = ApiConfig.normalizeBaseUrl(baseUrl);
 
   Future<Map<String, dynamic>> requestOtp(String phone) async {
     final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/otp'),

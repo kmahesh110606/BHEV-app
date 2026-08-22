@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/api_config.dart';
 import '../models/station.dart';
 import 'auth_service.dart';
 
 class ApiService {
   final String baseUrl;
-  ApiService(this.baseUrl);
+  ApiService(String baseUrl) : baseUrl = ApiConfig.normalizeBaseUrl(baseUrl);
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',

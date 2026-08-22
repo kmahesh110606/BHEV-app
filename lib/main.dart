@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'config/api_config.dart';
 import 'screens/booking_screen.dart';
 import 'screens/get_started_screen.dart';
 import 'screens/login_screen.dart';
@@ -8,12 +9,11 @@ import 'screens/operator_home_screen.dart';
 import 'screens/kiosk_screen.dart';
 import 'screens/qr_verification_screen.dart';
 import 'screens/sessions_screen.dart';
-
 import 'screens/trip_planner_screen.dart';
 
 const backendBase = String.fromEnvironment(
   'CHARGEGRID_API_URL',
-  defaultValue: 'http://10.0.2.2:3000',
+  defaultValue: ApiConfig.productionBaseUrl,
 );
 
 void main() {
