@@ -2,7 +2,7 @@ name: uei_app
 description: UEI Hackathon MVP Flutter app scaffold
 version: 0.1.0
 environment:
-  sdk: '>=2.18.0 <4.0.0'
+  sdk: '>=3.4.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -15,6 +15,7 @@ dependencies:
   google_fonts: ^6.0.0
   animations: ^2.0.6
   fluentui_system_icons: ^1.1.0
+  mappls_gl: ^2.0.6
 
 dev_dependencies:
   flutter_test:

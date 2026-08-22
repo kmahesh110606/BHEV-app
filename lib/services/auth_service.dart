@@ -8,7 +8,7 @@ class AuthService {
   AuthService(this.baseUrl);
 
   Future<Map<String, dynamic>> requestOtp(String phone) async {
-    final res = await http.post(Uri.parse('$baseUrl/auth/otp'),
+    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/otp'),
         body: json.encode({'phone': phone}),
         headers: {'Content-Type': 'application/json'});
     if (res.statusCode != 200) throw Exception('OTP request failed');
@@ -19,7 +19,7 @@ class AuthService {
       {String? name}) async {
     final body = {'phone': phone, 'code': code};
     if (name != null) body['name'] = name;
-    final res = await http.post(Uri.parse('$baseUrl/auth/otp/verify'),
+    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/otp/verify'),
         body: json.encode(body), headers: {'Content-Type': 'application/json'});
     if (res.statusCode != 200) throw Exception('OTP verify failed');
     final data = json.decode(res.body) as Map<String, dynamic>;
@@ -36,14 +36,18 @@ class AuthService {
       {String? name}) async {
     final body = {'email': email, 'password': password};
     if (name != null) body['name'] = name;
-    final res = await http.post(Uri.parse('$baseUrl/auth/email/signup'),
+    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/register'),
         body: json.encode(body), headers: {'Content-Type': 'application/json'});
-    if (res.statusCode != 200) throw Exception('Signup failed');
-    return json.decode(res.body) as Map<String, dynamic>;
+    if (res.statusCode != 200 && res.statusCode != 201) {
+      throw Exception('Signup failed: ${res.body}');
+    }
+    final data = json.decode(res.body) as Map<String, dynamic>;
+    currentToken = data['token'] as String?;
+    return data;
   }
 
   Future<Map<String, dynamic>> verifyEmail(String email, String code) async {
-    final res = await http.post(Uri.parse('$baseUrl/auth/email/verify'),
+    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/email/verify'),
         body: json.encode({'email': email, 'code': code}),
         headers: {'Content-Type': 'application/json'});
     if (res.statusCode != 200) throw Exception('Email verification failed');
@@ -53,7 +57,7 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>> emailLogin(String email, String password) async {
-    final res = await http.post(Uri.parse('$baseUrl/auth/email/login'),
+    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/login'),
         body: json.encode({'email': email, 'password': password}),
         headers: {'Content-Type': 'application/json'});
     if (res.statusCode != 200) throw Exception('Login failed');

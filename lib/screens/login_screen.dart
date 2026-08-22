@@ -60,7 +60,9 @@ class _LoginScreenState extends State<LoginScreen>
           passwordCtrl.text,
         );
         if (!mounted) return;
-        if (res['needsVerification'] == true) {
+        if (res['token'] != null) {
+          _navigateByRole(res);
+        } else if (res['needsVerification'] == true) {
           setState(() => verificationRequired = true);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Verification code sent to email')),
@@ -174,7 +176,7 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'UEI',
+                          'CHARGEGRID',
                           style: theme.textTheme.headlineMedium?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.w800,
@@ -183,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Charge access, bookings, and sessions in one place.',
+                          'One API for connected EV charging networks.',
                           textAlign: TextAlign.center,
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: Colors.white70,
@@ -325,12 +327,6 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text(
-                          'Test account: kmahesh110606@outlook.com / 123456',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: Colors.white38),
-                        ),
                       ],
                     ),
                   ),

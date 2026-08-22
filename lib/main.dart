@@ -4,7 +4,10 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/operator_home_screen.dart';
 
-const backendBase = 'http://10.0.2.2:3000';
+const backendBase = String.fromEnvironment(
+  'CHARGEGRID_API_URL',
+  defaultValue: 'http://10.0.2.2:3000',
+);
 
 void main() {
   runApp(const MyApp());
@@ -17,7 +20,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = const Color(0xFF39FF96);
     return MaterialApp(
-      title: 'UEI',
+      title: 'CHARGEGRID',
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0B0D0F),
         primaryColor: accent,
