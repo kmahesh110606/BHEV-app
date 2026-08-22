@@ -1,25 +1,98 @@
-name: Build Flutter application
+name: Build & Release BHEV App
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  verify-and-build:
+  build-and-release:
+    name: Build APK and Create GitHub Release
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
         with:
           channel: stable
-      - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter build apk --debug --dart-define=CHARGEGRID_API_URL=${{ vars.CHARGEGRID_API_URL }}
-      - uses: actions/upload-artifact@v4
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Analyze Code
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build Release APK
+        run: flutter build apk --release --dart-define=CHARGEGRID_API_URL=${{ vars.CHARGEGRID_API_URL }}
+
+      - name: Build Debug APK
+        run: flutter build apk --debug --dart-define=CHARGEGRID_API_URL=${{ vars.CHARGEGRID_API_URL }}
+
+      - name: Copy & Rename APKs
+        run: |
+          mkdir -p release-artifacts
+          cp build/app/outputs/flutter-apk/app-release.apk release-artifacts/bhev-app-release.apk
+          cp build/app/outputs/flutter-apk/app-debug.apk release-artifacts/bhev-app-debug.apk
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: chargegrid-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: bhev-apk-artifacts
+          path: release-artifacts/*
+
+      - name: Determine Tag and Release Name
+        id: release_info
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG_NAME="${{ github.ref_name }}"
+            RELEASE_NAME="BHEV App Release ${TAG_NAME}"
+          else
+            TAG_NAME="v1.0.${{ github.run_number }}"
+            RELEASE_NAME="BHEV App Release v1.0.${{ github.run_number }}"
+          fi
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "release_name=${RELEASE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release & Upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_info.outputs.tag_name }}
+          name: ${{ steps.release_info.outputs.release_name }}
+          body: |
+            ## 📱 BHEV App Automated Release
+
+            - **Version / Tag**: `${{ steps.release_info.outputs.tag_name }}`
+            - **Commit**: `${{ github.sha }}`
+            - **Branch / Ref**: `${{ github.ref_name }}`
+            - **Triggered By**: @${{ github.actor }}
+
+            ---
+            ### ⬇️ Downloads
+            - **[bhev-app-release.apk](https://github.com/${{ github.repository }}/releases/download/${{ steps.release_info.outputs.tag_name }}/bhev-app-release.apk)** (Optimized for device installation)
+            - **[bhev-app-debug.apk](https://github.com/${{ github.repository }}/releases/download/${{ steps.release_info.outputs.tag_name }}/bhev-app-debug.apk)** (Debug logs enabled)
+          files: |
+            release-artifacts/bhev-app-release.apk
+            release-artifacts/bhev-app-debug.apk
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
