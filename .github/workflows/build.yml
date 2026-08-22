@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -40,17 +42,32 @@ jobs:
       - name: Analyze Code
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
+      - name: Ensure Mappls Configuration Files Exist
+        run: |
+          mkdir -p android/app
+          touch android/app/.a.olf
+          touch android/app/.a.conf
+          touch android/app/com.example.uei_app.a.olf
+          touch android/app/com.example.uei_app.a.conf
+
       - name: Build Release APK
         run: flutter build apk --release --dart-define=CHARGEGRID_API_URL=${{ vars.CHARGEGRID_API_URL }}
 
       - name: Build Debug APK
         run: flutter build apk --debug --dart-define=CHARGEGRID_API_URL=${{ vars.CHARGEGRID_API_URL }}
 
-      - name: Copy & Rename APKs
+      - name: Package Release Artifacts
         run: |
           mkdir -p release-artifacts
-          cp build/app/outputs/flutter-apk/app-release.apk release-artifacts/bhev-app-release.apk
-          cp build/app/outputs/flutter-apk/app-debug.apk release-artifacts/bhev-app-debug.apk
+          if [ -f build/app/outputs/flutter-apk/app-release.apk ]; then
+            cp build/app/outputs/flutter-apk/app-release.apk release-artifacts/bhev-app-release.apk
+            echo "Copied release APK to release-artifacts/bhev-app-release.apk"
+          fi
+          if [ -f build/app/outputs/flutter-apk/app-debug.apk ]; then
+            cp build/app/outputs/flutter-apk/app-debug.apk release-artifacts/bhev-app-debug.apk
+            echo "Copied debug APK to release-artifacts/bhev-app-debug.apk"
+          fi
+          ls -la release-artifacts/
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -88,11 +105,10 @@ jobs:
             ### ⬇️ Downloads
             - **[bhev-app-release.apk](https://github.com/${{ github.repository }}/releases/download/${{ steps.release_info.outputs.tag_name }}/bhev-app-release.apk)** (Optimized for device installation)
             - **[bhev-app-debug.apk](https://github.com/${{ github.repository }}/releases/download/${{ steps.release_info.outputs.tag_name }}/bhev-app-debug.apk)** (Debug logs enabled)
-          files: |
-            release-artifacts/bhev-app-release.apk
-            release-artifacts/bhev-app-debug.apk
+          files: release-artifacts/*
           draft: false
           prerelease: false
+          make_latest: "true"
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
