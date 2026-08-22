@@ -385,12 +385,26 @@ class _ConnectorCard extends StatelessWidget {
             _StatusTag(connector: connector, color: _statusColor),
           ]),
           const SizedBox(height: 13),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _bookable ? () => _startSession(context) : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF65D7A5),
+                foregroundColor: const Color(0xFF0B0F17),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+              ),
+              icon: const Icon(FluentIcons.flash_24_filled, size: 18),
+              label: const Text('Start Charging Session', style: TextStyle(fontWeight: FontWeight.w800)),
+            ),
+          ),
+          const SizedBox(height: 8),
           Row(children: [
             Expanded(
-                child: ElevatedButton.icon(
+                child: OutlinedButton.icon(
               onPressed: _bookable ? () => _book(context, 'STANDARD') : null,
               icon: const Icon(FluentIcons.calendar_ltr_24_regular, size: 16),
-              label: const Text('Book'),
+              label: const Text('Reserve'),
             )),
             const SizedBox(width: 8),
             Expanded(
@@ -412,6 +426,25 @@ class _ConnectorCard extends StatelessWidget {
               )),
         ]),
       );
+
+  Future<void> _startSession(BuildContext context) async {
+    try {
+      await api.startSession(
+        stationId: station.id,
+        connectorId: connector.id,
+        initialSoc: 25,
+      );
+      if (!context.mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SessionsScreen()),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    }
+  }
 
   Future<void> _book(BuildContext context, String bookingType) async {
     final start = DateTime.now().add(const Duration(minutes: 5));

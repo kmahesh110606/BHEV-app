@@ -6,6 +6,7 @@ import 'auth_service.dart';
 class ApiService {
   final String baseUrl;
   ApiService(this.baseUrl);
+
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
         if (AuthService.currentToken != null)
@@ -54,10 +55,10 @@ class ApiService {
       if (connector?.isNotEmpty == true) 'connector': connector!,
       'limit': '700',
     };
-    var res = await http.get(Uri.parse('$baseUrl/api/v1/stations/national')
+    var res = await http.get(Uri.parse('$baseUrl/api/v1/stations')
         .replace(queryParameters: params));
     if (res.statusCode != 200) {
-      res = await http.get(Uri.parse('$baseUrl/api/v1/stations')
+      res = await http.get(Uri.parse('$baseUrl/api/v1/stations/national')
           .replace(queryParameters: params));
     }
     if (res.statusCode != 200) {
@@ -71,10 +72,37 @@ class ApiService {
 
   Future<Station> fetchStationDetails(String id) async {
     final res = await http.get(Uri.parse('$baseUrl/api/v1/stations/$id'));
-    if (res.statusCode != 200)
+    if (res.statusCode != 200) {
       throw Exception('Station details failed: ${res.body}');
+    }
     return Station.fromJson(
         Map<String, dynamic>.from((json.decode(res.body) as Map)['data']));
+  }
+
+  Future<Map<String, dynamic>> fetchCharger(String chargerId) async {
+    final json = await _request('/api/v1/chargers/$chargerId');
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  // ── Direct Session Start ────────────────────────────────────────────────
+  Future<Map<String, dynamic>> startSession({
+    required String stationId,
+    required String connectorId,
+    double initialSoc = 25,
+    String vehicleName = 'Tata Nexon EV Max',
+  }) async {
+    final json = await _request(
+      '/api/v1/sessions/start',
+      method: 'POST',
+      authenticated: true,
+      body: {
+        'stationId': stationId,
+        'connectorId': connectorId,
+        'initialSoc': initialSoc,
+        'vehicleName': vehicleName,
+      },
+    );
+    return Map<String, dynamic>.from(json['data'] as Map);
   }
 
   Future<Map<String, dynamic>> createBooking(
@@ -102,8 +130,9 @@ class ApiService {
           'driverEmail': driverEmail,
           'vehicleName': vehicleName
         }));
-    if (res.statusCode != 201 && res.statusCode != 200)
+    if (res.statusCode != 201 && res.statusCode != 200) {
       throw Exception('Booking failed: ${res.body}');
+    }
     return Map<String, dynamic>.from((json.decode(res.body) as Map)['data']);
   }
 
@@ -111,7 +140,7 @@ class ApiService {
     final path = driverEmail == null
         ? '/api/v1/bookings/me'
         : '/api/v1/bookings/me?driverEmail=${Uri.encodeQueryComponent(driverEmail)}';
-    final json = await _request(path);
+    final json = await _request(path, authenticated: true);
     final data = json['data'] as List? ?? const [];
     return data
         .whereType<Map>()
@@ -122,7 +151,7 @@ class ApiService {
   Future<Map<String, dynamic>> startBookingSession(String bookingId,
       {double initialSoc = 32}) async {
     final json = await _request('/api/v1/bookings/$bookingId/start-charging',
-        method: 'POST', body: {'initialSoc': initialSoc});
+        method: 'POST', authenticated: true, body: {'initialSoc': initialSoc});
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 
@@ -134,8 +163,9 @@ class ApiService {
           if (bookingId?.isNotEmpty == true) 'bookingId': bookingId,
           'token': token
         }));
-    if (res.statusCode != 200)
+    if (res.statusCode != 200) {
       throw Exception('Arrival verification failed: ${res.body}');
+    }
     return Map<String, dynamic>.from((json.decode(res.body) as Map)['data']);
   }
 
@@ -246,7 +276,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> dynamicQr(String stationId) async {
     final json = await _request(
-        '/api/v1/operator/mock-stations/$stationId/dynamic-qr',
+        '/api/v1/qr/$stationId',
         authenticated: true);
     return Map<String, dynamic>.from(json['data'] as Map);
   }
@@ -262,9 +292,29 @@ class ApiService {
         .toList();
   }
 
-  Future<Map<String, dynamic>> syncMockStations() async {
-    final json = await _request('/api/v1/operator/mock-stations/sync',
-        method: 'POST', authenticated: true);
+  Future<Map<String, dynamic>> addCharger(
+      String stationId, Map<String, dynamic> data) async {
+    final json = await _request(
+      '/api/v1/operator/stations/$stationId/chargers',
+      method: 'POST',
+      authenticated: true,
+      body: data,
+    );
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  Future<Map<String, dynamic>> toggleMaintenance(
+      String chargerId, bool enable) async {
+    final path = enable
+        ? '/api/v1/operator/chargers/$chargerId/maintenance'
+        : '/api/v1/operator/chargers/$chargerId/maintenance/end';
+    final json = await _request(path, method: 'POST', authenticated: true);
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  Future<Map<String, dynamic>> fetchOperatorAnalytics() async {
+    final json =
+        await _request('/api/v1/operator/analytics', authenticated: true);
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 

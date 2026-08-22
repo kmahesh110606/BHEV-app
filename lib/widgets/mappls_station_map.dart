@@ -12,11 +12,19 @@ import '../models/station.dart';
 class MapplsStationMap extends StatelessWidget {
   final List<Station> stations;
   final ValueChanged<Station> onStationTap;
+  final List<latlng.LatLng>? routePoints;
+  final latlng.LatLng? originPoint;
+  final latlng.LatLng? destinationPoint;
+  final MapController? mapController;
 
   const MapplsStationMap({
     super.key,
     required this.stations,
     required this.onStationTap,
+    this.routePoints,
+    this.originPoint,
+    this.destinationPoint,
+    this.mapController,
   });
 
   @override
@@ -25,14 +33,16 @@ class MapplsStationMap extends StatelessWidget {
         .where((station) => station.lat != 0 && station.lng != 0)
         .take(350)
         .toList();
-    final center = validStations.isNotEmpty
-        ? latlng.LatLng(validStations.first.lat, validStations.first.lng)
-        : const latlng.LatLng(20.5937, 78.9629);
+    final center = originPoint ??
+        (validStations.isNotEmpty
+            ? latlng.LatLng(validStations.first.lat, validStations.first.lng)
+            : const latlng.LatLng(20.5937, 78.9629));
 
     return FlutterMap(
+      mapController: mapController,
       options: MapOptions(
         initialCenter: center,
-        initialZoom: validStations.isNotEmpty ? 11.5 : 4.3,
+        initialZoom: originPoint != null && destinationPoint != null ? 8.5 : (validStations.isNotEmpty ? 11.5 : 4.3),
         minZoom: 3,
         maxZoom: 18,
         interactionOptions: const InteractionOptions(
@@ -47,6 +57,21 @@ class MapplsStationMap extends StatelessWidget {
           userAgentPackageName: 'com.example.uei_app',
           retinaMode: MediaQuery.devicePixelRatioOf(context) > 1,
         ),
+        if (routePoints != null && routePoints!.isNotEmpty)
+          PolylineLayer(
+            polylines: [
+              Polyline(
+                points: routePoints!,
+                color: const Color(0xFF65D7A5).withValues(alpha: 0.35),
+                strokeWidth: 9.0,
+              ),
+              Polyline(
+                points: routePoints!,
+                color: const Color(0xFF2563EB),
+                strokeWidth: 4.5,
+              ),
+            ],
+          ),
         MarkerLayer(
           markers: [
             for (final station in validStations)
@@ -57,6 +82,38 @@ class MapplsStationMap extends StatelessWidget {
                 child: _StationMarker(
                   station: station,
                   onTap: () => onStationTap(station),
+                ),
+              ),
+            if (originPoint != null)
+              Marker(
+                point: originPoint!,
+                width: 44,
+                height: 44,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF10B981),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(color: Color(0x6610B981), blurRadius: 10, spreadRadius: 2)
+                    ],
+                  ),
+                  child: const Icon(Icons.my_location, color: Colors.white, size: 22),
+                ),
+              ),
+            if (destinationPoint != null)
+              Marker(
+                point: destinationPoint!,
+                width: 44,
+                height: 44,
+                child: Container(
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEF4444),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(color: Color(0x66EF4444), blurRadius: 10, spreadRadius: 2)
+                    ],
+                  ),
+                  child: const Icon(Icons.location_on, color: Colors.white, size: 24),
                 ),
               ),
           ],

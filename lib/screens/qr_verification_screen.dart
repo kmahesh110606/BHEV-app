@@ -176,34 +176,83 @@ class _ScannerInstructions extends StatelessWidget {
       );
 }
 
-class _VerifiedPanel extends StatelessWidget {
+class _VerifiedPanel extends StatefulWidget {
   final Map<String, dynamic> result;
 
   const _VerifiedPanel({required this.result});
+
+  @override
+  State<_VerifiedPanel> createState() => _VerifiedPanelState();
+}
+
+class _VerifiedPanelState extends State<_VerifiedPanel> {
+  final _api = ApiService(backendBase);
+  bool _starting = false;
+
+  Future<void> _startCharging() async {
+    setState(() => _starting = true);
+    try {
+      final stnId = widget.result['stationId']?.toString() ?? '';
+      final connId = widget.result['connectorId']?.toString() ?? '';
+      if (stnId.isNotEmpty && connId.isNotEmpty) {
+        await _api.startSession(
+          stationId: stnId,
+          connectorId: connId,
+          initialSoc: 25,
+        );
+      }
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/sessions');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        setState(() => _starting = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(FluentIcons.checkmark_circle_24_filled,
-              color: Color(0xFF65D7A5), size: 42),
+              color: Color(0xFF65D7A5), size: 44),
           const SizedBox(height: 10),
-          const Text('Kiosk verified',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 7),
+          const Text('Physical Presence Verified',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
           Text(
-            'Station ${result['stationId']} • Connector ${result['connectorId']}',
+            'Station: ${widget.result['stationId'] ?? 'Verified'}\nConnector: ${widget.result['connectorId'] ?? 'Plug Connected'}',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0xFFB7C4D2), fontSize: 12),
+            style: const TextStyle(color: Color(0xFFB7C4D2), fontSize: 12, height: 1.4),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, '/sessions'),
-              icon: const Icon(FluentIcons.flash_24_regular),
-              label: const Text('Open charging session'),
+              onPressed: _starting ? null : _startCharging,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF65D7A5),
+                foregroundColor: const Color(0xFF0B0F17),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              icon: _starting
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0B0F17)),
+                    )
+                  : const Icon(FluentIcons.flash_24_filled, size: 20),
+              label: Text(
+                _starting ? 'Initiating Charger...' : 'Start Charging Session',
+                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+              ),
             ),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => Navigator.pushReplacementNamed(context, '/sessions'),
+            child: const Text('View Active Sessions', style: TextStyle(color: Color(0xFF8B9CB2), fontSize: 12)),
           ),
         ],
       );

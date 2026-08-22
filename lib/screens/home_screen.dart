@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
-import '../data/demo_stations.dart';
 import '../main.dart';
 import '../models/station.dart';
 import '../services/api_service.dart';
@@ -69,13 +68,13 @@ class _HomeScreenState extends State<HomeScreen> {
           child: FutureBuilder<List<Station>>(
             future: _stations,
             builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done)
+              if (snapshot.connectionState != ConnectionState.done) {
                 return const _DiscoveryLoading();
-              final liveStations =
-                  snapshot.hasError ? const <Station>[] : snapshot.data ?? const <Station>[];
-              final usingDemo = snapshot.hasError || liveStations.isEmpty;
-              final stations =
-                  _filterStations(usingDemo ? demoStations : liveStations);
+              }
+              final liveStations = snapshot.hasError
+                  ? const <Station>[]
+                  : snapshot.data ?? const <Station>[];
+              final stations = _filterStations(liveStations);
               return Stack(
                 children: [
                   Positioned.fill(
@@ -141,21 +140,20 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: ListView(
                             padding: const EdgeInsets.fromLTRB(16, 84, 16, 24),
                             children: [
-                              _ResultsHeading(
-                                  count: stations.length, isDemo: usingDemo),
+                              _ResultsHeading(count: stations.length),
                               const SizedBox(height: 10),
-                              if (usingDemo) ...[
-                                const _DemoFeedBanner(),
-                                const SizedBox(height: 10),
-                              ],
                               if (stations.isEmpty)
-                                _EmptyState(onClear: () {
-                                  _searchController.clear();
-                                  setState(() {
-                                    _availableOnly = false;
-                                    _fastChargeOnly = false;
-                                  });
-                                })
+                                _EmptyState(
+                                  hasError: snapshot.hasError,
+                                  onClear: () {
+                                    _searchController.clear();
+                                    setState(() {
+                                      _availableOnly = false;
+                                      _fastChargeOnly = false;
+                                    });
+                                    _reload();
+                                  },
+                                )
                               else
                                 ...stations.map((station) => Padding(
                                       padding:
@@ -269,6 +267,14 @@ class _DiscoveryFilters extends StatelessWidget {
   Widget build(BuildContext context) => SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(children: [
+          ActionChip(
+            avatar: const Icon(FluentIcons.directions_24_filled, size: 16, color: Color(0xFF0B0F17)),
+            label: const Text('Plan Route', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0B0F17))),
+            backgroundColor: const Color(0xFF65D7A5),
+            side: BorderSide.none,
+            onPressed: () => Navigator.pushNamed(context, '/trip-planner'),
+          ),
+          const SizedBox(width: 8),
           _FilterPill(
               label: 'Available now',
               icon: FluentIcons.checkmark_circle_16_filled,
@@ -357,43 +363,17 @@ class _PulseDot extends StatelessWidget {
 
 class _ResultsHeading extends StatelessWidget {
   final int count;
-  final bool isDemo;
-  const _ResultsHeading({required this.count, required this.isDemo});
+  const _ResultsHeading({required this.count});
   @override
   Widget build(BuildContext context) => Row(children: [
         Expanded(
             child: Text(
-                isDemo
-                    ? '$count sample charging points'
-                    : '$count charging point${count == 1 ? '' : 's'}',
+                '$count charging point${count == 1 ? '' : 's'}',
                 style: const TextStyle(
                     fontSize: 16, fontWeight: FontWeight.w800))),
-        const Text('Tap a card for booking confidence',
+        const Text('Tap card for details & direct charging',
             style: TextStyle(fontSize: 10, color: Color(0xFF9CA9BA))),
       ]);
-}
-
-class _DemoFeedBanner extends StatelessWidget {
-  const _DemoFeedBanner();
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: const Color(0xFF75B9FF).withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(
-              color: const Color(0xFF75B9FF).withValues(alpha: 0.22)),
-        ),
-        child: const Row(children: [
-          Icon(FluentIcons.info_16_regular, color: Color(0xFF9DCEFF), size: 16),
-          SizedBox(width: 8),
-          Expanded(
-              child: Text(
-                  'Preview data is shown while the live operator feed is empty.',
-                  style: TextStyle(color: Color(0xFFC5E3FF), fontSize: 11))),
-        ]),
-      );
 }
 
 class _StationSearchCard extends StatelessWidget {
@@ -478,7 +458,7 @@ class _StationSearchCard extends StatelessWidget {
               const Spacer(),
               Flexible(
                   child: Text(
-                      station.isMock ? 'CPO preview' : station.operatorName,
+                      station.isMock ? 'CPO live feed' : station.operatorName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -487,7 +467,7 @@ class _StationSearchCard extends StatelessWidget {
           ]),
         ),
       ),
-      );
+    );
   }
 }
 
@@ -562,8 +542,10 @@ class _DetailChip extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
+  final bool hasError;
   final VoidCallback onClear;
-  const _EmptyState({required this.onClear});
+  const _EmptyState({required this.hasError, required this.onClear});
+
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(28),
@@ -571,17 +553,29 @@ class _EmptyState extends StatelessWidget {
             color: const Color(0xFF121B29).withValues(alpha: 0.92),
             borderRadius: BorderRadius.circular(24)),
         child: Column(children: [
-          const Icon(FluentIcons.search_info_24_regular,
-              size: 34, color: Color(0xFF94A4B9)),
+          Icon(
+              hasError
+                  ? FluentIcons.warning_24_regular
+                  : FluentIcons.search_info_24_regular,
+              size: 34,
+              color: hasError ? const Color(0xFFFF9B87) : const Color(0xFF94A4B9)),
           const SizedBox(height: 10),
-          const Text('No stations match those filters',
-              style: TextStyle(fontWeight: FontWeight.w800)),
+          Text(
+              hasError
+                  ? 'Unable to connect to charging network'
+                  : 'No stations match those filters',
+              style: const TextStyle(fontWeight: FontWeight.w800)),
           const SizedBox(height: 5),
-          const Text('Try a different city or widen your availability filters.',
+          Text(
+              hasError
+                  ? 'Please check your internet connection or server status and retry.'
+                  : 'Try a different city or widen your availability filters.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Color(0xFF9AA8BA), fontSize: 12)),
+              style: const TextStyle(color: Color(0xFF9AA8BA), fontSize: 12)),
           const SizedBox(height: 12),
-          TextButton(onPressed: onClear, child: const Text('Clear filters')),
+          TextButton(
+              onPressed: onClear,
+              child: Text(hasError ? 'Retry loading' : 'Clear filters')),
         ]),
       );
 }
@@ -597,4 +591,3 @@ class _DiscoveryLoading extends StatelessWidget {
             style: TextStyle(color: Color(0xFFB7C1CE)))
       ]));
 }
-

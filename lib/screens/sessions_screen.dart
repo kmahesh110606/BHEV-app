@@ -21,14 +21,13 @@ class _SessionsScreenState extends State<SessionsScreen> {
   List<Map<String, dynamic>> _history = const [];
   Object? _error;
   bool _loading = true;
-  bool _usingMockSessionService = false;
 
   @override
   void initState() {
     super.initState();
     _load();
     _poller =
-        Timer.periodic(const Duration(seconds: 5), (_) => _load(silent: true));
+        Timer.periodic(const Duration(seconds: 4), (_) => _load(silent: true));
   }
 
   @override
@@ -42,26 +41,16 @@ class _SessionsScreenState extends State<SessionsScreen> {
     try {
       final result =
           await Future.wait([_api.activeSession(), _api.mySessions()]);
-      if (mounted)
+      if (mounted) {
         setState(() {
           _active = result[0] as Map<String, dynamic>?;
           _history = result[1] as List<Map<String, dynamic>>;
           _error = null;
-          _usingMockSessionService = false;
         });
+      }
     } catch (error) {
-      final text = error.toString().toLowerCase();
       if (mounted) {
-        if (text.contains('not found') || text.contains('404')) {
-          setState(() {
-            _active = null;
-            _history = [_demoCompletedSession()];
-            _error = null;
-            _usingMockSessionService = true;
-          });
-        } else {
-          setState(() => _error = error);
-        }
+        setState(() => _error = error);
       }
     } finally {
       if (!silent && mounted) setState(() => _loading = false);
@@ -88,16 +77,11 @@ class _SessionsScreenState extends State<SessionsScreen> {
         builder: (context) => _PaymentSheet(
           session: session,
           onPay: (method) async {
-            final receipt = '${session['id']}'.startsWith('demo-')
-                ? {
-                    'transactionId':
-                        'MOCK-PAY-${DateTime.now().millisecondsSinceEpoch}',
-                  }
-                : await _api.paySession('${session['id']}', method);
+            final receipt = await _api.paySession('${session['id']}', method);
             if (!mounted) return;
             Navigator.pop(context);
             await _load();
-            _notice('Payment confirmed • ${receipt['transactionId']}');
+            _notice('Payment confirmed • ${receipt['transactionId'] ?? 'SUCCESS'}');
           },
         ),
       );
@@ -120,7 +104,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
                         style: TextStyle(
                             fontSize: 24, fontWeight: FontWeight.w800)),
                     SizedBox(height: 4),
-                    Text('Live energy, invoices and payment',
+                    Text('Live energy telemetry, digital invoices & UPI settlement',
                         style:
                             TextStyle(color: Color(0xFF9BA8BA), fontSize: 12)),
                   ])),
@@ -140,10 +124,10 @@ class _SessionsScreenState extends State<SessionsScreen> {
                   icon: FluentIcons.lock_closed_24_regular,
                   title: AuthService.currentToken == null
                       ? 'Sign in to see your sessions'
-                      : 'Session service could not refresh',
+                      : 'Session connection error',
                   body: AuthService.currentToken == null
-                      ? 'Session history and payment require your ChargeGrid account.\n${_error.toString()}'
-                      : 'You are signed in, but the hosted API returned an error.\n${_error.toString()}',
+                      ? 'Session tracking and instant payments require your ChargeGrid account.\n${_error.toString()}'
+                      : 'Unable to sync live sessions with server.\n${_error.toString()}',
                   action: AuthService.currentToken == null ? 'Sign in' : 'Retry',
                   onAction: AuthService.currentToken == null
                       ? () => Navigator.pushNamed(context, '/sign-in')
@@ -154,9 +138,8 @@ class _SessionsScreenState extends State<SessionsScreen> {
               _InfoCard(
                   icon: FluentIcons.flash_24_regular,
                   title: 'No active charging session',
-                  body: _usingMockSessionService
-                      ? 'The deployed session endpoint is still catching up. Demo billing remains available below while CI/CD updates Azure.'
-                      : 'Book a connector, then scan the live kiosk QR with the camera to begin charging.',
+                  body:
+                      'Find a station on the map, scan the QR code or tap Start Charging on any available pedestal.',
                   action: 'Find chargers',
                   onAction: () => Navigator.pushNamed(context, '/customer')),
             const SizedBox(height: 24),
@@ -164,7 +147,7 @@ class _SessionsScreenState extends State<SessionsScreen> {
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
             const SizedBox(height: 10),
             if (!_loading && _error == null && _history.isEmpty)
-              const Text('No completed sessions yet.',
+              const Text('No completed sessions recorded yet.',
                   style: TextStyle(color: Color(0xFF9BA8BA), fontSize: 12))
             else
               ..._history.map((session) => _HistoryCard(
@@ -177,29 +160,6 @@ class _SessionsScreenState extends State<SessionsScreen> {
         ),
       );
 }
-
-Map<String, dynamic> _demoCompletedSession() => {
-      'id': 'demo-session-paid-flow',
-      'status': 'COMPLETED',
-      'stationName': 'Koramangala HyperCharge DC Hub',
-      'vehicleName': 'Tata Nexon EV Max',
-      'energyKwh': 18.6,
-      'energyWh': 18600,
-      'durationMinutes': 28,
-      'cost': 317.11,
-      'liveCost': 317.11,
-      'invoice': {
-        'invoiceId': 'INV-UEI-DEMO',
-        'totalAmount': 317.11,
-        'settlementStatus': 'DUE',
-      },
-      'connector': {
-        'standard': 'CCS2',
-        'evse': {
-          'location': {'name': 'Koramangala HyperCharge DC Hub'}
-        }
-      }
-    };
 
 class _ActiveSessionCard extends StatelessWidget {
   final Map<String, dynamic> session;
@@ -230,7 +190,7 @@ class _ActiveSessionCard extends StatelessWidget {
               style:
                   const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
           Text(
-              '${session['connectorStandard'] ?? 'EV connector'} • ${session['maxPowerKw'] ?? '—'} kW',
+              '${session['connectorStandard'] ?? 'EV connector'} • ${session['maxPowerKw'] ?? '60'} kW',
               style: const TextStyle(color: Color(0xFFB5C3D2), fontSize: 12)),
           const SizedBox(height: 18),
           Row(children: [
@@ -285,7 +245,10 @@ class _HistoryCard extends StatelessWidget {
     final location = evse['location'] is Map
         ? Map<String, dynamic>.from(evse['location'])
         : const <String, dynamic>{};
-    final energy = (double.tryParse('${session['energyWh'] ?? 0}') ?? 0) / 1000;
+    final energy = session['energyKwh'] ?? (double.tryParse('${session['energyWh'] ?? 0}') ?? 0) / 1000;
+    final cost = session['cost'] ?? session['liveCost'] ?? 0;
+    final stationName = session['stationName'] ?? location['name'] ?? 'Charging Station';
+
     return Padding(
         padding: const EdgeInsets.only(top: 10),
         child: Container(
@@ -298,28 +261,46 @@ class _HistoryCard extends StatelessWidget {
                 color: Color(0xFF9CCEFF)),
             const SizedBox(width: 10),
             Expanded(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                  Text('${location['name'] ?? 'Charging session'}',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w800, fontSize: 13)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                      '${energy.toStringAsFixed(2)} kWh • ₹${session['cost'] ?? 0}',
-                      style: const TextStyle(
-                          color: Color(0xFF9AA8BA), fontSize: 11)),
-                ])),
-            if (onPay != null)
-              TextButton(onPressed: onPay, child: const Text('Pay'))
+                    '$stationName',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${energy.toStringAsFixed(1)} kWh • ${session['durationMinutes'] ?? 0} mins • ₹$cost',
+                    style: const TextStyle(color: Color(0xFF9BA8BA), fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            if (onPay != null && session['payment'] == null)
+              ElevatedButton(
+                onPressed: onPay,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  backgroundColor: const Color(0xFF65D7A5),
+                  foregroundColor: const Color(0xFF0B0F17),
+                ),
+                child: const Text('Pay', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800)),
+              )
             else
-              Text('${session['status'] ?? ''}',
-                  style: const TextStyle(
-                      color: Color(0xFF8CEBBC),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800)),
+              const Text('PAID', style: TextStyle(color: Color(0xFF65D7A5), fontWeight: FontWeight.w800, fontSize: 11)),
           ]),
         ));
   }
+}
+
+class _LiveDot extends StatelessWidget {
+  const _LiveDot();
+  @override
+  Widget build(BuildContext context) => Container(
+      width: 8,
+      height: 8,
+      decoration: const BoxDecoration(
+          color: Color(0xFF65D7A5), shape: BoxShape.circle));
 }
 
 class _InfoCard extends StatelessWidget {
@@ -336,101 +317,110 @@ class _InfoCard extends StatelessWidget {
       required this.onAction});
   @override
   Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-          color: const Color(0xFF121B29),
-          borderRadius: BorderRadius.circular(24)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, color: const Color(0xFF85EAB7), size: 28),
-        const SizedBox(height: 12),
-        Text(title,
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
-        const SizedBox(height: 6),
-        Text(body,
-            style: const TextStyle(
-                color: Color(0xFF9EACBE), fontSize: 12, height: 1.4)),
-        const SizedBox(height: 15),
-        ElevatedButton(onPressed: onAction, child: Text(action)),
-      ]));
-}
-
-class _LiveDot extends StatelessWidget {
-  const _LiveDot();
-  @override
-  Widget build(BuildContext context) => Container(
-      width: 8,
-      height: 8,
-      decoration: const BoxDecoration(
-          color: Color(0xFF65D7A5), shape: BoxShape.circle));
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+            color: const Color(0xFF121B29),
+            borderRadius: BorderRadius.circular(24)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, color: const Color(0xFF9CCEFF), size: 28),
+          const SizedBox(height: 12),
+          Text(title,
+              style:
+                  const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6),
+          Text(body,
+              style: const TextStyle(
+                  color: Color(0xFF9CA9BA), fontSize: 12, height: 1.4)),
+          const SizedBox(height: 14),
+          ElevatedButton(onPressed: onAction, child: Text(action)),
+        ]),
+      );
 }
 
 class _PaymentSheet extends StatefulWidget {
   final Map<String, dynamic> session;
   final Future<void> Function(String method) onPay;
   const _PaymentSheet({required this.session, required this.onPay});
+
   @override
   State<_PaymentSheet> createState() => _PaymentSheetState();
 }
 
 class _PaymentSheetState extends State<_PaymentSheet> {
   String _method = 'UPI';
-  bool _paying = false;
+  bool _busy = false;
+
   @override
-  Widget build(BuildContext context) => SafeArea(
+  Widget build(BuildContext context) {
+    final cost = widget.session['cost'] ?? widget.session['liveCost'] ?? 0;
+    return SafeArea(
       child: Padding(
-          padding: const EdgeInsets.all(22),
-          child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Settle your charging bill',
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 14),
-                Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: .05),
-                        borderRadius: BorderRadius.circular(16)),
-                    child: Row(children: [
-                      const Text('Total due'),
-                      const Spacer(),
-                      Text('₹${widget.session['cost'] ?? 0}',
-                          style: const TextStyle(
-                              color: Color(0xFF8DEBBC),
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800))
-                    ])),
-                const SizedBox(height: 14),
-                SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'UPI', label: Text('UPI')),
-                      ButtonSegment(value: 'CARD', label: Text('Card')),
-                      ButtonSegment(value: 'WALLET', label: Text('Wallet'))
-                    ],
-                    selected: {
-                      _method
-                    },
-                    onSelectionChanged: (next) =>
-                        setState(() => _method = next.first)),
-                const SizedBox(height: 14),
-                SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                        onPressed: _paying
-                            ? null
-                            : () async {
-                                setState(() => _paying = true);
-                                try {
-                                  await widget.onPay(_method);
-                                } catch (error) {
-                                  if (mounted)
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('$error')));
-                                } finally {
-                                  if (mounted) setState(() => _paying = false);
-                                }
-                              },
-                        child: Text(_paying ? 'Confirming…' : 'Pay securely'))),
-              ])));
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Digital invoice checkout',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text(
+              'Station: ${widget.session['stationName'] ?? 'EV Charging Station'}',
+              style: const TextStyle(color: Color(0xFFB0BFD0), fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF172437),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.between,
+                children: [
+                  const Text('Total payable (GST included)', style: TextStyle(fontWeight: FontWeight.w700)),
+                  Text('₹$cost', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF65D7A5))),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text('Select payment gateway', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              children: ['UPI', 'Debit Card', 'Credit Card', 'Net Banking'].map((m) {
+                final selected = _method == m;
+                return ChoiceChip(
+                  label: Text(m),
+                  selected: selected,
+                  onSelected: (val) => setState(() => _method = m),
+                  selectedColor: const Color(0xFF65D7A5),
+                  labelStyle: TextStyle(
+                    color: selected ? const Color(0xFF0B0F17) : Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        setState(() => _busy = true);
+                        try {
+                          await widget.onPay(_method);
+                        } finally {
+                          if (mounted) setState(() => _busy = false);
+                        }
+                      },
+                child: Text(_busy ? 'Processing payment…' : 'Pay ₹$cost with $_method'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
