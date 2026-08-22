@@ -375,7 +375,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.between,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('Total payable (GST included)', style: TextStyle(fontWeight: FontWeight.w700)),
                   Text('₹$cost', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Color(0xFF65D7A5))),

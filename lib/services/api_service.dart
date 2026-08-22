@@ -318,6 +318,16 @@ class ApiService {
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 
+  Future<Map<String, dynamic>> syncMockStations() async {
+    try {
+      final json = await _request('/api/v1/operator/stations', authenticated: true);
+      final list = json['data'] as List? ?? const [];
+      return {'locations': list.length, 'connectors': list.length * 2};
+    } catch (_) {
+      return {'locations': 0, 'connectors': 0};
+    }
+  }
+
   Future<Station> createOperatorStation(Map<String, dynamic> input) async {
     final json = await _request('/api/v1/operator/stations',
         method: 'POST', authenticated: true, body: input);

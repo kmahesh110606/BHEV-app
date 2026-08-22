@@ -438,7 +438,7 @@ class _TripPlannerScreenState extends State<TripPlannerScreen> with SingleTicker
           color: const Color(0xFF121A28),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0x26FFFFFF)),
+            side: const BorderSide(color: Color(0x26FFFFFF)),
           ),
           child: InkWell(
             onTap: () => _showStationPreview(station),

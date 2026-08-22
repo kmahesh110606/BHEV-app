@@ -72,19 +72,26 @@ class _BookingScreenState extends State<BookingScreen> {
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 40),
-          const Icon(FluentIcons.calendar_clock_24_regular,
-              size: 64, color: Color(0xFF65D7A5)),
+          Icon(
+            _error != null
+                ? FluentIcons.error_circle_24_regular
+                : FluentIcons.calendar_clock_24_regular,
+            size: 64,
+            color: _error != null ? const Color(0xFFEF4444) : const Color(0xFF65D7A5),
+          ),
           const SizedBox(height: 16),
-          const Text(
-            'No Active Bookings',
+          Text(
+            _error != null ? 'Unable to Load Bookings' : 'No Active Bookings',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Discover and reserve any charging bay across 29,000+ national stations. When you arrive at the station, scan the dynamic QR on the kiosk screen to begin charging.',
+          Text(
+            _error != null
+                ? _error!
+                : 'Discover and reserve any charging bay across 29,000+ national stations. When you arrive at the station, scan the dynamic QR on the kiosk screen to begin charging.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0xFF9BA9BC), height: 1.45),
+            style: const TextStyle(color: Color(0xFF9BA9BC), height: 1.45),
           ),
           const SizedBox(height: 28),
           ElevatedButton.icon(
