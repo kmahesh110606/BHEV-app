@@ -76,4 +76,9 @@ class AuthService {
   Future<Map<String, dynamic>> googleSignIn() async {
     throw UnimplementedError('Google sign-in is not wired yet');
   }
+
+  static Future<void> logout() async {
+    currentToken = null;
+    currentUser = null;
+  }
 }

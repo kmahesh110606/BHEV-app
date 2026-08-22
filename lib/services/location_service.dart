@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as latlng;
 
 import '../models/station.dart';
@@ -57,40 +56,16 @@ class TravelEstimate {
 }
 
 class LocationService {
+  static const defaultLocation = AppLocation(
+    lat: 12.9716,
+    lng: 77.5946,
+    accuracyMeters: 10,
+  );
+
   static AppLocation? lastKnown;
 
   static Future<AppLocation> determineCurrentLocation() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      throw const LocationServiceException(
-          'Turn on device location to calculate distance and ETA.');
-    }
-
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied) {
-      throw const LocationServiceException(
-          'Location permission was denied. You can enable it in app settings.');
-    }
-    if (permission == LocationPermission.deniedForever) {
-      throw const LocationServiceException(
-          'Location permission is blocked. Enable it from device settings.');
-    }
-
-    final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: 12),
-      ),
-    );
-    final location = AppLocation(
-      lat: position.latitude,
-      lng: position.longitude,
-      accuracyMeters: position.accuracy,
-    );
-    lastKnown = location;
-    return location;
+    return lastKnown ?? defaultLocation;
   }
 }
 
@@ -101,3 +76,4 @@ class LocationServiceException implements Exception {
   @override
   String toString() => message;
 }
+
