@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'screens/booking_screen.dart';
 import 'screens/get_started_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/app_shell.dart';
@@ -80,6 +81,7 @@ class MyApp extends StatelessWidget {
         '/customer': (ctx) => const AppShell(),
         '/operator': (ctx) => const OperatorHomeScreen(),
         '/kiosk': (ctx) => const KioskScreen(),
+        '/bookings': (ctx) => const BookingScreen(),
         '/scan-kiosk': (ctx) => const QrVerificationScreen(),
         '/sessions': (ctx) => const SessionsScreen(),
       },

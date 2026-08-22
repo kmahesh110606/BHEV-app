@@ -229,8 +229,8 @@ class _ModuleGrid extends StatelessWidget {
               icon: FluentIcons.calendar_ltr_24_regular,
               color: const Color(0xFF88C9FF),
               title: 'Reservations',
-              description: 'Conflict-safe booking slots',
-              onTap: () => onNavigate(1)),
+              description: 'Manage bookings & QR scan',
+              onTap: () => Navigator.pushNamed(context, '/bookings')),
           _ModuleTile(
               icon: FluentIcons.flash_24_regular,
               color: const Color(0xFFFFC56B),
