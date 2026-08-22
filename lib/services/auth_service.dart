@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 class AuthService {
   final String baseUrl;
   static String? currentToken;
+  static Map<String, dynamic>? currentUser;
 
   AuthService(this.baseUrl);
 
@@ -25,6 +26,7 @@ class AuthService {
     final data = json.decode(res.body) as Map<String, dynamic>;
     final token = data['token'] as String?;
     AuthService.currentToken = token;
+    AuthService.currentUser = data['user'] as Map<String, dynamic>? ?? data;
     return data;
   }
 
@@ -43,6 +45,7 @@ class AuthService {
     }
     final data = json.decode(res.body) as Map<String, dynamic>;
     currentToken = data['token'] as String?;
+    currentUser = data['user'] as Map<String, dynamic>? ?? data;
     return data;
   }
 
@@ -53,6 +56,7 @@ class AuthService {
     if (res.statusCode != 200) throw Exception('Email verification failed');
     final data = json.decode(res.body) as Map<String, dynamic>;
     currentToken = data['token'] as String?;
+    currentUser = data['user'] as Map<String, dynamic>? ?? data;
     return data;
   }
 
@@ -63,6 +67,7 @@ class AuthService {
     if (res.statusCode != 200) throw Exception('Login failed');
     final data = json.decode(res.body) as Map<String, dynamic>;
     currentToken = data['token'] as String?;
+    currentUser = data['user'] as Map<String, dynamic>? ?? data;
     return data;
   }
 
