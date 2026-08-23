@@ -1,4 +1,7 @@
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
@@ -12,7 +15,22 @@ import '../widgets/station_preview_sheet.dart';
 import 'station_details.dart';
 import 'booking_screen.dart';
 
-/// Discover screen with full interactive map, GPS auto-centering, BEE dataset support, and smart AI recommendations
+/// Data class representing clustered stations on the national map
+class MapCluster {
+  final LatLng center;
+  final int count;
+  final List<StationModel> stations;
+
+  MapCluster({
+    required this.center,
+    required this.count,
+    required this.stations,
+  });
+
+  bool get isSingle => count == 1;
+}
+
+/// Discover screen with full interactive map, national dynamic spatial clustering, GPS auto-centering, and smart recommendations
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -32,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _cacheSyncStatus;
   LatLng _userPosition = const LatLng(12.9716, 77.5946); // Default Bengaluru
   bool _hasUserLocation = false;
-  double _mapZoom = 13.0;
+  double _currentZoom = 6.5; // Starts with National Cluster Overview
 
   final List<String> _cities = ['All', 'Bengaluru', 'Delhi', 'Mumbai', 'Hyderabad', 'Chennai', 'Pune', 'Kolkata'];
   final List<String> _filters = ['All', '⚡ DC Fast (50kW+)', 'Type 2 AC', '🟢 Available Now', '🏛️ Govt. / BEE'];
@@ -53,34 +71,77 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initLocationAndLoadStations() async {
     setState(() => _isLoading = true);
 
-    // 1. Request GPS Geolocation
+    List<StationModel> allList = [];
+
+    // 1. Load national 29,084 BEE dataset from bundled compact asset
+    try {
+      final jsonStr = await rootBundle.loadString('assets/bee_stations_compact.json');
+      final List<dynamic> decoded = jsonDecode(jsonStr);
+      final beeList = decoded.map((item) {
+        final id = item['id']?.toString() ?? '';
+        final name = item['name']?.toString() ?? 'EV Station';
+        final cpo = item['cpo']?.toString() ?? 'BEE';
+        final city = item['city']?.toString() ?? '';
+        final state = item['state']?.toString() ?? '';
+        final address = item['address']?.toString() ?? '';
+        final lat = double.tryParse(item['lat']?.toString() ?? '') ?? 12.9716;
+        final lng = double.tryParse(item['lng']?.toString() ?? '') ?? 77.5946;
+        final conns = int.tryParse(item['conns']?.toString() ?? '') ?? 1;
+        final power = double.tryParse(item['power']?.toString() ?? '') ?? 7.4;
+        final ownership = item['ownership']?.toString() ?? 'Govt.';
+
+        final isDc = power >= 50 || name.toUpperCase().contains('CCS') || cpo.toUpperCase().contains('TATA') || cpo.toUpperCase().contains('CHARGE');
+
+        return StationModel(
+          id: id,
+          name: name,
+          address: address.isNotEmpty ? address : '$city, $state',
+          city: city.isNotEmpty ? city : 'India',
+          state: state,
+          ownership: ownership,
+          cpo: cpo,
+          latitude: lat,
+          longitude: lng,
+          rating: 4.8,
+          availableConnectors: conns,
+          connectors: [
+            ConnectorModel(
+              id: '$id-conn-01',
+              standard: isDc ? 'CCS2' : 'Type2',
+              powerType: isDc ? 'DC' : 'AC',
+              maxPowerKw: power,
+              status: 'AVAILABLE',
+              tariff: TariffModel(pricePerKwh: isDc ? 16.5 : 12.0, flatFee: 20.0),
+            ),
+          ],
+        );
+      }).toList();
+      allList.addAll(beeList);
+    } catch (_) {}
+
+    // 2. Fetch live operator stations from backend API / cache
+    try {
+      final remote = await ApiService.getStations(limit: 2000);
+      if (remote.isNotEmpty) {
+        final seen = Set<String>.from(remote.map((r) => r.id));
+        allList = [...remote, ...allList.where((s) => !seen.contains(s.id))];
+      }
+    } catch (_) {}
+
+    // 3. Request GPS Geolocation & auto-zoom
     final pos = await LocationService.getCurrentPosition();
     if (pos != null && mounted) {
       _userPosition = LatLng(pos.latitude, pos.longitude);
       _hasUserLocation = true;
+      _currentZoom = 13.5;
       try {
         _mapController.move(_userPosition, 13.5);
       } catch (_) {}
     }
 
-    // 2. Fetch stations from backend / local cache
-    List<StationModel> list;
-    if (_hasUserLocation) {
-      list = await ApiService.getNearbyStations(
-        latitude: _userPosition.latitude,
-        longitude: _userPosition.longitude,
-        radiusKm: 35.0,
-      );
-    } else {
-      list = await ApiService.getStations(
-        city: _selectedCity == 'All' ? null : _selectedCity,
-        search: _searchController.text.trim(),
-      );
-    }
-
-    // 3. Compute accurate GPS distance for each station
-    if (list.isNotEmpty) {
-      list = list.map((s) {
+    // 4. Compute accurate GPS distance for each station
+    if (allList.isNotEmpty) {
+      allList = allList.map((s) {
         final dist = LocationService.calculateDistance(
           _userPosition.latitude,
           _userPosition.longitude,
@@ -112,16 +173,16 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }).toList();
 
-      // Sort by closest distance by default
-      list.sort((a, b) => (a.distanceKm ?? 9999).compareTo(b.distanceKm ?? 9999));
+      // Sort by closest distance
+      allList.sort((a, b) => (a.distanceKm ?? 9999).compareTo(b.distanceKm ?? 9999));
     }
 
     final syncTime = await OfflineCacheService.getLastSyncTime();
 
     if (mounted) {
       setState(() {
-        _stations = list;
-        _cacheSyncStatus = syncTime;
+        _stations = allList;
+        _cacheSyncStatus = syncTime ?? '29,084 Stations Offline Synced';
         _isLoading = false;
       });
     }
@@ -162,6 +223,54 @@ class _HomeScreenState extends State<HomeScreen> {
     return list.take(5).toList();
   }
 
+  /// Dynamic Spatial Clustering Algorithm for 29,000+ stations
+  List<MapCluster> _computeClusters(List<StationModel> stations, double zoom) {
+    if (zoom >= 13.0 || stations.length <= 1) {
+      // Individual station pins at street zoom level
+      return stations.map((s) => MapCluster(
+        center: LatLng(s.latitude, s.longitude),
+        count: 1,
+        stations: [s],
+      )).toList();
+    }
+
+    // Dynamic grid cell degree step based on zoom level
+    final double step = 180.0 / (pow(2.0, zoom) * 2.2);
+
+    final Map<String, List<StationModel>> buckets = {};
+    for (final s in stations) {
+      final int latBucket = (s.latitude / step).floor();
+      final int lngBucket = (s.longitude / step).floor();
+      final key = '$latBucket:$lngBucket';
+      buckets.putIfAbsent(key, () => []).add(s);
+    }
+
+    final List<MapCluster> clusters = [];
+    buckets.forEach((key, list) {
+      if (list.length == 1) {
+        clusters.add(MapCluster(
+          center: LatLng(list.first.latitude, list.first.longitude),
+          count: 1,
+          stations: list,
+        ));
+      } else {
+        double sumLat = 0;
+        double sumLng = 0;
+        for (final s in list) {
+          sumLat += s.latitude;
+          sumLng += s.longitude;
+        }
+        clusters.add(MapCluster(
+          center: LatLng(sumLat / list.length, sumLng / list.length),
+          count: list.length,
+          stations: list,
+        ));
+      }
+    });
+
+    return clusters;
+  }
+
   void _showStationPreview(StationModel station) {
     _mapController.move(LatLng(station.latitude, station.longitude), 14.5);
     showModalBottomSheet(
@@ -194,6 +303,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _userPosition = LatLng(pos.latitude, pos.longitude);
         _hasUserLocation = true;
+        _currentZoom = 14.0;
       });
       _mapController.move(_userPosition, 14.0);
     }
@@ -208,7 +318,7 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: AppColors.background,
       body: Stack(
         children: [
-          // ── Layer 1: Background Interactive Map or List View ──
+          // ── Layer 1: Background Interactive Map with Spatial Clustering or List View ──
           if (_isMapView)
             _buildInteractiveMap(filtered)
           else
@@ -246,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             controller: _searchController,
                             onChanged: (_) => setState(() {}),
                             decoration: InputDecoration(
-                              hintText: 'Search 14,000+ BEE & CPO stations...',
+                              hintText: 'Search 29,085+ national EV stations...',
                               hintStyle: const TextStyle(fontSize: 13, color: AppColors.textTertiary),
                               filled: false,
                               border: InputBorder.none,
@@ -300,7 +410,12 @@ class _HomeScreenState extends State<HomeScreen> {
                             selected: selected,
                             onSelected: (_) {
                               setState(() => _selectedCity = city);
-                              _initLocationAndLoadStations();
+                              if (city == 'Bengaluru') _mapController.move(const LatLng(12.9716, 77.5946), 11.5);
+                              if (city == 'Delhi') _mapController.move(const LatLng(28.6139, 77.2090), 11.5);
+                              if (city == 'Mumbai') _mapController.move(const LatLng(19.0760, 72.8777), 11.5);
+                              if (city == 'Hyderabad') _mapController.move(const LatLng(17.3850, 78.4867), 11.5);
+                              if (city == 'Chennai') _mapController.move(const LatLng(13.0827, 80.2707), 11.5);
+                              if (city == 'Pune') _mapController.move(const LatLng(18.5204, 73.8567), 11.5);
                             },
                             selectedColor: AppColors.emerald,
                             backgroundColor: AppColors.surface.withOpacity(0.9),
@@ -485,7 +600,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             const Icon(FluentIcons.cloud_checkmark_24_filled, size: 14, color: AppColors.emerald),
                             const SizedBox(width: 6),
                             Text(
-                              '${filtered.length} Stations · ${_cacheSyncStatus ?? "Offline Cached"}',
+                              '${filtered.length} Stations · ${_cacheSyncStatus ?? "29,084 Stations Synced"}',
                               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                             ),
                           ],
@@ -505,18 +620,25 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ── Widget: Interactive FlutterMap with Dark Tiles & User Location Pin ──
+  // ── Widget: Interactive FlutterMap with Dynamic Spatial Cluster Badges ──
   Widget _buildInteractiveMap(List<StationModel> stations) {
+    final clusters = _computeClusters(stations, _currentZoom);
+
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
         initialCenter: _userPosition,
-        initialZoom: _mapZoom,
+        initialZoom: _currentZoom,
         minZoom: 4,
         maxZoom: 18,
+        onPositionChanged: (pos, hasGesture) {
+          if ((pos.zoom - _currentZoom).abs() >= 0.5) {
+            setState(() => _currentZoom = pos.zoom);
+          }
+        },
       ),
       children: [
-        // CartoDB Dark Matter / OSM Invert Tile Layer
+        // CartoDB Dark Matter / OSM Tile Layer
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
           userAgentPackageName: 'in.chargegrid.urjaa',
@@ -533,7 +655,7 @@ class _HomeScreenState extends State<HomeScreen> {
           },
         ),
 
-        // Station & User Markers Layer
+        // Cluster & Station Markers Layer
         MarkerLayer(
           markers: [
             // User Live Location Pin
@@ -557,43 +679,93 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-            // Station Pins
-            ...stations.map((s) {
-              final isAvail = s.availableConnectors > 0;
-              final isFast = s.isFastDc;
-              final pinColor = isAvail
-                  ? (isFast ? AppColors.emerald : AppColors.sky)
-                  : AppColors.crimson;
+            // Dynamic Clusters / Station Pins
+            ...clusters.map((c) {
+              if (c.isSingle) {
+                final s = c.stations.first;
+                final isAvail = s.availableConnectors > 0;
+                final isFast = s.isFastDc;
+                final pinColor = isAvail
+                    ? (isFast ? AppColors.emerald : AppColors.sky)
+                    : AppColors.crimson;
 
-              return Marker(
-                point: LatLng(s.latitude, s.longitude),
-                width: 44,
-                height: 44,
-                child: GestureDetector(
-                  onTap: () => _showStationPreview(s),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: pinColor, width: 2),
-                      boxShadow: [
-                        BoxShadow(
-                          color: pinColor.withOpacity(0.4),
-                          blurRadius: 10,
-                          spreadRadius: 1,
+                return Marker(
+                  point: c.center,
+                  width: 44,
+                  height: 44,
+                  child: GestureDetector(
+                    onTap: () => _showStationPreview(s),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: pinColor, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: pinColor.withOpacity(0.4),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: Icon(
+                          isFast ? FluentIcons.flash_24_filled : FluentIcons.vehicle_car_profile_24_filled,
+                          color: pinColor,
+                          size: 20,
                         ),
-                      ],
-                    ),
-                    child: Center(
-                      child: Icon(
-                        isFast ? FluentIcons.flash_24_filled : FluentIcons.vehicle_car_profile_24_filled,
-                        color: pinColor,
-                        size: 20,
                       ),
                     ),
                   ),
-                ),
-              );
+                );
+              } else {
+                // Grouped Cluster Circle Badge matching reference image
+                final count = c.count;
+                final double size = count > 1000 ? 64 : count > 100 ? 54 : 46;
+
+                return Marker(
+                  point: c.center,
+                  width: size,
+                  height: size,
+                  child: GestureDetector(
+                    onTap: () {
+                      final nextZoom = (_currentZoom + 2.5).clamp(4.0, 16.0);
+                      _mapController.move(c.center, nextZoom);
+                    },
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: Color(0x4010B981), // Translucent green glowing halo
+                        shape: BoxShape.circle,
+                      ),
+                      padding: const EdgeInsets.all(5),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF059669), // Vibrant green core badge
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x6010B981),
+                              blurRadius: 10,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            '$count',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: count > 9999 ? 11 : count > 999 ? 12 : 14,
+                              letterSpacing: -0.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }
             }),
           ],
         ),

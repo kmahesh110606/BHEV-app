@@ -18,11 +18,11 @@ class ApiService {
   }
 
   // ── Stations Discovery & Offline Cache ──
-  static Future<List<StationModel>> getStations({String? city, String? search}) async {
+  static Future<List<StationModel>> getStations({String? city, String? search, int? limit}) async {
     try {
       final uri = Uri.parse(ApiConfig.stations).replace(
         queryParameters: {
-          'limit': '2000',
+          'limit': (limit ?? 2000).toString(),
           if (city != null && city.isNotEmpty && city != 'All') 'city': city,
           if (search != null && search.isNotEmpty) 'q': search,
         },
