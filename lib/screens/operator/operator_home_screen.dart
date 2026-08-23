@@ -239,6 +239,56 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> with SingleTick
                   );
                 }).toList(),
               ),
+            const SizedBox(height: 24),
+
+            // Live Dynamic QR Terminal Preview Card
+            const Text('Live Bay Dynamic QR Terminal', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            const Text('Point driver app camera directly to this QR to verify arrival & start charging', style: TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+            const SizedBox(height: 10),
+
+            if (op.selectedStation != null)
+              GlassContainer(
+                borderColor: (op.selectedStation!.availableConnectors > 0 ? AppColors.emerald : AppColors.crimson).withOpacity(0.5),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            op.selectedStation!.name,
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: (op.selectedStation!.availableConnectors > 0 ? AppColors.emerald : AppColors.crimson).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            op.selectedStation!.availableConnectors > 0 ? '🟢 OPEN (GREEN HALO)' : '🔴 IN USE (RED HALO)',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: op.selectedStation!.availableConnectors > 0 ? AppColors.emerald : AppColors.crimson,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    DynamicQrView(
+                      qrToken: op.dynamicQrToken ?? 'URJAA_TOTP_HMAC_${op.selectedStation!.id}',
+                      isOccupied: op.selectedStation!.availableConnectors == 0,
+                      stationName: op.selectedStation!.name,
+                      onRefresh: () => op.refreshStationQr(),
+                      size: 190,
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

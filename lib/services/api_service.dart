@@ -22,17 +22,18 @@ class ApiService {
     try {
       final uri = Uri.parse(ApiConfig.stations).replace(
         queryParameters: {
-          if (city != null && city.isNotEmpty) 'city': city,
+          'limit': '2000',
+          if (city != null && city.isNotEmpty && city != 'All') 'city': city,
           if (search != null && search.isNotEmpty) 'q': search,
         },
       );
 
-      final res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 4));
+      final res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 5));
       if (res.statusCode == 200) {
         final json = jsonDecode(res.body);
         final list = json['data'] as List<dynamic>? ?? [];
         final stations = list.map((item) => StationModel.fromJson(item as Map<String, dynamic>)).toList();
-        if (stations.isNotEmpty && (city == null || city.isEmpty) && (search == null || search.isEmpty)) {
+        if (stations.isNotEmpty && (city == null || city.isEmpty || city == 'All') && (search == null || search.isEmpty)) {
           OfflineCacheService.saveStations(stations);
         }
         return stations;
@@ -46,7 +47,7 @@ class ApiService {
     }
     if (search != null && search.isNotEmpty) {
       final q = search.toLowerCase();
-      return cached.where((s) => s.name.toLowerCase().contains(q) || s.address.toLowerCase().contains(q) || s.city.toLowerCase().contains(q)).toList();
+      return cached.where((s) => s.name.toLowerCase().contains(q) || s.address.toLowerCase().contains(q) || s.city.toLowerCase().contains(q) || (s.cpo?.toLowerCase().contains(q) ?? false)).toList();
     }
     return cached;
   }
@@ -54,7 +55,7 @@ class ApiService {
   static Future<List<StationModel>> getNearbyStations({
     required double latitude,
     required double longitude,
-    double radiusKm = 25.0,
+    double radiusKm = 35.0,
   }) async {
     try {
       final uri = Uri.parse(ApiConfig.nearbyStations).replace(
@@ -62,10 +63,11 @@ class ApiService {
           'lat': latitude.toString(),
           'lng': longitude.toString(),
           'radius': radiusKm.toString(),
+          'limit': '2000',
         },
       );
 
-      final res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 4));
+      final res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 5));
       if (res.statusCode == 200) {
         final json = jsonDecode(res.body);
         final list = json['data'] as List<dynamic>? ?? [];

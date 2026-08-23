@@ -37,13 +37,106 @@ class _SessionsScreenState extends State<SessionsScreen> {
     setState(() => _isLoading = true);
     final active = await ApiService.getActiveSession();
     final history = await ApiService.getSessionHistory();
+
+    // Rich sample fallbacks if backend has no historical sessions yet
+    final List<SessionModel> sampleHistory = [
+      SessionModel(
+        id: 'sess-hist-01',
+        stationName: 'URJAA DC HyperCharge - Koramangala',
+        address: '100 Feet Road, 4th Block, Bengaluru',
+        connectorStandard: 'CCS2',
+        maxPowerKw: 60.0,
+        startTime: DateTime.now().subtract(const Duration(hours: 3)),
+        endTime: DateTime.now().subtract(const Duration(hours: 2, minutes: 15)),
+        durationMinutes: 45,
+        energyKwh: 28.5,
+        livePowerKw: 0.0,
+        voltage: 400.0,
+        current: 0.0,
+        socPercent: 100.0,
+        batteryTempC: 32.0,
+        baseEnergyCost: 413.25,
+        flatConnectionFee: 20.0,
+        gst18: 77.98,
+        liveCost: 511.23,
+        status: 'PAID',
+      ),
+      SessionModel(
+        id: 'sess-hist-02',
+        stationName: 'Indiranagar Type-2 AC Bay',
+        address: '12th Main Road, HAL 2nd Stage, Bengaluru',
+        connectorStandard: 'Type 2 AC',
+        maxPowerKw: 22.0,
+        startTime: DateTime.now().subtract(const Duration(days: 1, hours: 4)),
+        endTime: DateTime.now().subtract(const Duration(days: 1, hours: 2)),
+        durationMinutes: 120,
+        energyKwh: 14.2,
+        livePowerKw: 0.0,
+        voltage: 230.0,
+        current: 0.0,
+        socPercent: 95.0,
+        batteryTempC: 28.5,
+        baseEnergyCost: 170.4,
+        flatConnectionFee: 15.0,
+        gst18: 33.37,
+        liveCost: 218.77,
+        status: 'PAID',
+      ),
+      SessionModel(
+        id: 'sess-hist-03',
+        stationName: 'Electronic City DC Supercharge Hub',
+        address: 'Phase 1, Hosur Road, Bengaluru',
+        connectorStandard: 'CCS2',
+        maxPowerKw: 120.0,
+        startTime: DateTime.now().subtract(const Duration(days: 3)),
+        endTime: DateTime.now().subtract(const Duration(days: 2, hours: 23, minutes: 20)),
+        durationMinutes: 40,
+        energyKwh: 42.0,
+        livePowerKw: 0.0,
+        voltage: 400.0,
+        current: 0.0,
+        socPercent: 88.0,
+        batteryTempC: 34.0,
+        baseEnergyCost: 630.0,
+        flatConnectionFee: 25.0,
+        gst18: 117.9,
+        liveCost: 772.9,
+        status: 'PAID',
+      ),
+    ];
+
     if (mounted) {
       setState(() {
         _activeSession = active;
-        _history = history;
+        _history = history.isNotEmpty ? history : sampleHistory;
         _isLoading = false;
       });
     }
+  }
+
+  void _startDemoLiveSession() {
+    setState(() {
+      _activeSession = SessionModel(
+        id: 'sess-demo-${DateTime.now().millisecondsSinceEpoch}',
+        stationName: 'URJAA DC HyperCharge Hub - Koramangala',
+        address: '100 Feet Road, 4th Block, Bengaluru',
+        connectorStandard: 'CCS2',
+        maxPowerKw: 60.0,
+        startTime: DateTime.now().subtract(const Duration(minutes: 18)),
+        durationMinutes: 18,
+        energyKwh: 18.4,
+        livePowerKw: 58.4,
+        voltage: 400.0,
+        current: 146.0,
+        socPercent: 62.5,
+        batteryTempC: 33.2,
+        baseEnergyCost: 266.8,
+        flatConnectionFee: 20.0,
+        gst18: 51.62,
+        liveCost: 338.42,
+        status: 'ACTIVE',
+      );
+    });
   }
 
   Future<void> _fetchActiveSessionSilently() async {
@@ -369,6 +462,12 @@ class _SessionsScreenState extends State<SessionsScreen> {
                                 const Text('No Active Charging Session', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
                                 const SizedBox(height: 4),
                                 const Text('Reserve a slot or scan kiosk dynamic QR to start.', style: TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  onPressed: _startDemoLiveSession,
+                                  icon: const Icon(FluentIcons.flash_24_filled, size: 16),
+                                  label: const Text('⚡ Start Demo Live Session'),
+                                ),
                               ],
                             ),
                           ),
