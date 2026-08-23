@@ -1,17 +1,19 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import '../services/auth_service.dart';
+import '../services/api_service.dart';
+import '../services/operator_service.dart';
 import '../config/api_config.dart';
 import '../models/station_model.dart';
-import '../services/api_service.dart';
-import '../services/auth_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/dynamic_qr_view.dart';
 
-/// Full Touchscreen Kiosk EVSE Hardware Simulator
+/// Full interactive EVSE Touchscreen Kiosk Simulator replicating physical charger hardware & 3-phase grid telemetry
 class KioskScreen extends StatefulWidget {
   final String? stationId;
 
@@ -51,15 +53,135 @@ class _KioskScreenState extends State<KioskScreen> {
 
   Future<void> _loadKiosk() async {
     setState(() => _isLoading = true);
-    final stations = await ApiService.getStations();
-    if (mounted && stations.isNotEmpty) {
-      _stations = stations;
-      _selectedStation = widget.stationId != null
-          ? stations.firstWhere((s) => s.id == widget.stationId, orElse: () => stations.first)
-          : stations.first;
+
+    List<StationModel> list = [];
+
+    // 1. Check OperatorService stations in memory
+    try {
+      final opService = context.read<OperatorService?>();
+      if (opService != null && opService.stations.isNotEmpty) {
+        list = List.from(opService.stations);
+      }
+    } catch (_) {}
+
+    // 2. Fetch stations from ApiService / offline cache
+    if (list.isEmpty) {
+      try {
+        final fetched = await ApiService.getStations(limit: 100);
+        if (fetched.isNotEmpty) list.addAll(fetched);
+      } catch (_) {}
+    }
+
+    // 3. Fallback default operator hubs ensuring dropdown is NEVER empty
+    if (list.isEmpty) {
+      list = [
+        StationModel(
+          id: 'stn-a53c1077',
+          name: 'Indiranagar 100ft HyperGrid Station',
+          address: '100 Feet Road, HAL 2nd Stage, Indiranagar',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          latitude: 12.9716,
+          longitude: 77.6412,
+          cpo: 'Tata Power EZ Charge',
+          availableConnectors: 1,
+          connectors: [
+            ConnectorModel(
+              id: 'CHG-9713C707',
+              standard: 'CCS2',
+              powerType: 'DC',
+              maxPowerKw: 120,
+              status: 'AVAILABLE',
+              tariff: TariffModel(pricePerKwh: 15.5, flatFee: 25.0),
+            ),
+          ],
+        ),
+        StationModel(
+          id: 'stn-fd05ddf3',
+          name: 'Tata Power MG Road Supercharger Hub',
+          address: '1 MG Road, Central Business District',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          latitude: 12.9716,
+          longitude: 77.5946,
+          cpo: 'Tata Power EZ Charge',
+          availableConnectors: 1,
+          connectors: [
+            ConnectorModel(
+              id: 'CHG-8D9FA737',
+              standard: 'CCS2',
+              powerType: 'DC',
+              maxPowerKw: 60,
+              status: 'AVAILABLE',
+              tariff: TariffModel(pricePerKwh: 16.5, flatFee: 25.0),
+            ),
+          ],
+        ),
+        StationModel(
+          id: 'stn-01',
+          name: 'Koramangala DC Fast Port',
+          address: '80 Feet Road, 4th Block, Koramangala',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          latitude: 12.9352,
+          longitude: 77.6245,
+          cpo: 'URJAA HyperCharge',
+          availableConnectors: 2,
+          connectors: [
+            ConnectorModel(
+              id: 'conn-01',
+              standard: 'CCS2',
+              powerType: 'DC',
+              maxPowerKw: 60,
+              status: 'AVAILABLE',
+              tariff: TariffModel(pricePerKwh: 14.5, flatFee: 20.0),
+            ),
+          ],
+        ),
+        StationModel(
+          id: 'stn-03',
+          name: 'Electronic City Supercharge Hub',
+          address: 'Phase 1, Hosur Road',
+          city: 'Bengaluru',
+          state: 'Karnataka',
+          latitude: 12.8452,
+          longitude: 77.6602,
+          cpo: 'Tata Power EZ Charge',
+          availableConnectors: 4,
+          connectors: [
+            ConnectorModel(
+              id: 'conn-03',
+              standard: 'CCS2',
+              powerType: 'DC',
+              maxPowerKw: 120,
+              status: 'AVAILABLE',
+              tariff: TariffModel(pricePerKwh: 15.0, flatFee: 25.0),
+            ),
+          ],
+        ),
+      ];
+    }
+
+    // Deduplicate by ID
+    final seen = <String>{};
+    final uniqueStations = <StationModel>[];
+    for (final s in list) {
+      if (s.id.isNotEmpty && !seen.contains(s.id)) {
+        seen.add(s.id);
+        uniqueStations.add(s);
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _stations = uniqueStations;
+        _selectedStation = widget.stationId != null
+            ? uniqueStations.firstWhere((s) => s.id == widget.stationId, orElse: () => uniqueStations.first)
+            : uniqueStations.first;
+        _isLoading = false;
+      });
       await _fetchKioskState();
     }
-    setState(() => _isLoading = false);
   }
 
   Future<void> _fetchKioskState() async {
@@ -131,6 +253,10 @@ class _KioskScreenState extends State<KioskScreen> {
     final token = AuthService.currentToken;
 
     try {
+      final connId = _selectedStation!.connectors.isNotEmpty
+          ? _selectedStation!.connectors.first.id
+          : '${_selectedStation!.id}-conn-01';
+
       final res = await http.post(
         Uri.parse(ApiConfig.kioskStart(_selectedStation!.id)),
         headers: {
@@ -138,7 +264,7 @@ class _KioskScreenState extends State<KioskScreen> {
           if (token != null) 'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
-          'connectorId': _selectedStation!.connectors.first.id,
+          'connectorId': connId,
         }),
       );
 
@@ -151,6 +277,14 @@ class _KioskScreenState extends State<KioskScreen> {
         _startTelemetryStream();
       }
     } catch (_) {}
+
+    // Fallback simulation if offline
+    setState(() {
+      _isCablePlugged = true;
+      _isStreaming = true;
+      _invoice = null;
+    });
+    _startTelemetryStream();
   }
 
   Future<void> _handleHardwareStop() async {
@@ -167,18 +301,37 @@ class _KioskScreenState extends State<KioskScreen> {
           if (token != null) 'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
-          'finalEnergyWh': _cumulativeEnergyWh,
+          'finalEnergyWh': _cumulativeEnergyWh > 0 ? _cumulativeEnergyWh : 24500,
+          'driverName': 'EV Driver',
         }),
       );
 
       if (res.statusCode == 200) {
         final json = jsonDecode(res.body);
         setState(() {
-          _invoice = json['data']?['invoice'];
+          _invoice = json['data'];
+          _isCablePlugged = false;
         });
         await _fetchKioskState();
+        return;
       }
     } catch (_) {}
+
+    // Local invoice calculation fallback
+    final kwh = (_cumulativeEnergyWh > 0 ? _cumulativeEnergyWh : 24500) / 1000;
+    final baseCost = kwh * (_selectedStation?.baseTariffPerKwh ?? 14.5) + (_selectedStation?.connectionFlatFee ?? 20.0);
+    final gst = baseCost * 0.18;
+    setState(() {
+      _invoice = {
+        'invoiceId': 'INV-KIOSK-${DateTime.now().millisecondsSinceEpoch.toString().substring(7)}',
+        'energyDeliveredKwh': kwh.toStringAsFixed(2),
+        'baseAmount': baseCost.toStringAsFixed(2),
+        'gst18': gst.toStringAsFixed(2),
+        'totalPaid': (baseCost + gst).toStringAsFixed(2),
+      };
+      _isCablePlugged = false;
+      _isStreaming = false;
+    });
   }
 
   @override
@@ -186,13 +339,16 @@ class _KioskScreenState extends State<KioskScreen> {
     if (_isLoading) {
       return const Scaffold(
         backgroundColor: AppColors.background,
-        body: Center(child: CircularProgressIndicator(color: AppColors.emerald)),
+        body: Center(child: CircularProgressIndicator(color: AppColors.sky)),
       );
     }
 
-    final isCharging = _kioskState?['activeSession'] != null;
-    final isReserved = _kioskState?['activeBooking'] != null && !isCharging;
-    final dynamicQr = _kioskState?['qr']?['token']?.toString() ?? 'SAMPLE_URJAA_TOTP_TOKEN';
+    final activeSess = _kioskState?['activeSession'];
+    final isCharging = _isStreaming || activeSess != null;
+    final isReserved = _kioskState?['activeBooking'] != null;
+
+    final qrToken = _kioskState?['dynamicQr']?['token'] ??
+        'URJAA_TOTP_HMAC_${_selectedStation?.id ?? "DEMO"}';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -201,53 +357,58 @@ class _KioskScreenState extends State<KioskScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Top Kiosk EVSE Header
+            // Kiosk Header Bar
             GlassContainer(
-              borderColor: isCharging ? AppColors.sky : (isReserved ? AppColors.amber : AppColors.emerald),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.all(16),
+              borderColor: isCharging ? AppColors.sky : isReserved ? AppColors.amber : AppColors.emerald,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: (isCharging ? AppColors.sky : AppColors.emerald).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(
+                          isCharging ? FluentIcons.flash_24_filled : FluentIcons.gauge_24_filled,
+                          color: isCharging ? AppColors.sky : AppColors.emerald,
+                          size: 24,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: AppColors.emerald.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(FluentIcons.gauge_24_filled, color: AppColors.emerald, size: 20),
+                          Text(
+                            _selectedStation?.name ?? 'EVSE Touchscreen Kiosk',
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                           ),
-                          const SizedBox(width: 10),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(_selectedStation?.name ?? 'EV Charger Kiosk',
-                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-                              Text('${_selectedStation?.city} · 60kW CCS2 DC Fast',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
-                            ],
+                          const SizedBox(height: 2),
+                          Text(
+                            '${_selectedStation?.city ?? "Bengaluru"} · Max ${_selectedStation?.maxPowerKw ?? 60} kW DC',
+                            style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
                           ),
                         ],
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: (isCharging ? AppColors.sky : isReserved ? AppColors.amber : AppColors.emerald).withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          isCharging ? '⚡ CHARGING' : isReserved ? '🕒 RESERVED' : '● AVAILABLE',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: isCharging ? AppColors.sky : isReserved ? AppColors.amber : AppColors.emerald,
-                          ),
-                        ),
-                      ),
                     ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: (isCharging ? AppColors.sky : isReserved ? AppColors.amber : AppColors.emerald).withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      isCharging ? '⚡ CHARGING' : isReserved ? '🕒 RESERVED' : '● AVAILABLE',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: isCharging ? AppColors.sky : isReserved ? AppColors.amber : AppColors.emerald,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -268,23 +429,43 @@ class _KioskScreenState extends State<KioskScreen> {
                     const SizedBox(height: 16),
 
                     _invoiceRow('Energy Delivered', '${_invoice!['energyDeliveredKwh']} kWh'),
-                    _invoiceRow('Duration', '${_invoice!['durationMinutes']} mins'),
-                    _invoiceRow('Base Energy Cost', '₹${_invoice!['baseEnergyCost']}'),
-                    _invoiceRow('Connection Fee', '₹${_invoice!['flatConnectionFee']}'),
+                    _invoiceRow('Base Cost', '₹${_invoice!['baseAmount']}'),
                     _invoiceRow('GST (18%)', '₹${_invoice!['gst18']}'),
                     const Divider(height: 20),
-                    _invoiceRow('Total Due', '₹${_invoice!['totalAmount']} INR', isTotal: true),
-                    const SizedBox(height: 16),
+                    _invoiceRow('Total Paid', '₹${_invoice!['totalPaid']}', isTotal: true),
 
-                    ElevatedButton(
-                      onPressed: () => setState(() => _invoice = null),
-                      child: const Text('Back to Kiosk Screen'),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => setState(() => _invoice = null),
+                        icon: const Icon(FluentIcons.arrow_clockwise_24_filled, size: 16),
+                        label: const Text('Reset Kiosk Terminal'),
+                      ),
                     ),
                   ],
                 ),
               ),
-            ] else if (isCharging) ...[
-              // Active Telemetry Dials
+            ] else if (!isCharging) ...[
+              // Idle Dynamic QR Terminal
+              Center(
+                child: Column(
+                  children: [
+                    DynamicQrView(
+                      qrToken: qrToken,
+                      isOccupied: false,
+                      stationName: _selectedStation?.name ?? 'EV Station',
+                      onRefresh: _fetchKioskState,
+                      size: 210,
+                    ),
+                    const SizedBox(height: 14),
+                    const Text('Scan dynamic QR from driver app to initiate charge',
+                        style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // Live Active Charging Screen
               GlassContainer(
                 borderColor: AppColors.sky,
                 child: Column(
@@ -326,27 +507,17 @@ class _KioskScreenState extends State<KioskScreen> {
                         onPressed: _handleHardwareStop,
                         style: ElevatedButton.styleFrom(backgroundColor: AppColors.crimson),
                         icon: const Icon(FluentIcons.stop_24_filled, size: 18, color: Colors.white),
-                        label: const Text('Stop Charging (Kiosk)', style: TextStyle(color: Colors.white)),
+                        label: const Text('Remote Hardware Stop & Generate Invoice', style: TextStyle(color: Colors.white)),
                       ),
                     ),
                   ],
-                ),
-              ),
-            ] else ...[
-              // Dynamic QR Box
-              Center(
-                child: DynamicQrView(
-                  qrToken: dynamicQr,
-                  isOccupied: isReserved,
-                  stationName: _selectedStation?.name ?? 'Charging Hub',
-                  onRefresh: _fetchKioskState,
                 ),
               ),
             ],
             const SizedBox(height: 24),
 
             // Hardware Controls Panel
-            const Text('Hardware Simulator Controls', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            const Text('Hardware Simulator Controls', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
             const SizedBox(height: 12),
 
             GlassContainer(
@@ -354,21 +525,35 @@ class _KioskScreenState extends State<KioskScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Station Dropdown Switcher
-                  DropdownButtonFormField<String>(
-                    value: _selectedStation?.id,
-                    decoration: const InputDecoration(labelText: 'Select Station to Simulate'),
-                    items: _stations.map((s) {
-                      return DropdownMenuItem(value: s.id, child: Text('${s.name} (${s.city})'));
-                    }).toList(),
-                    onChanged: (val) {
-                      if (val != null) {
-                        setState(() {
-                          _selectedStation = _stations.firstWhere((s) => s.id == val);
-                        });
-                        _fetchKioskState();
-                      }
-                    },
-                  ),
+                  if (_stations.isNotEmpty)
+                    DropdownButtonFormField<String>(
+                      value: _stations.any((s) => s.id == _selectedStation?.id)
+                          ? _selectedStation?.id
+                          : _stations.first.id,
+                      decoration: const InputDecoration(labelText: 'Select Station to Simulate'),
+                      isExpanded: true,
+                      items: _stations.map((s) {
+                        return DropdownMenuItem<String>(
+                          value: s.id,
+                          child: Text(
+                            '${s.name} (${s.city})',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) {
+                          setState(() {
+                            _selectedStation = _stations.firstWhere((s) => s.id == val);
+                            _invoice = null;
+                          });
+                          _fetchKioskState();
+                        }
+                      },
+                    ),
+                  const SizedBox(height: 12),
+
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -407,27 +592,26 @@ class _KioskScreenState extends State<KioskScreen> {
     );
   }
 
-  Widget _invoiceRow(String label, String value, {bool isTotal = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(fontSize: isTotal ? 15 : 13, fontWeight: isTotal ? FontWeight.w800 : FontWeight.w500, color: isTotal ? AppColors.textPrimary : AppColors.textSecondary)),
-          Text(value, style: TextStyle(fontSize: isTotal ? 17 : 13, fontWeight: isTotal ? FontWeight.w900 : FontWeight.w700, color: isTotal ? AppColors.emerald : AppColors.textPrimary)),
-        ],
-      ),
+  Widget _dialTile(String label, String value) {
+    return Column(
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+        const SizedBox(height: 4),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: AppColors.sky)),
+      ],
     );
   }
 
-  Widget _dialTile(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
-        const SizedBox(height: 2),
-        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-      ],
+  Widget _invoiceRow(String label, String value, {bool isTotal = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontWeight: isTotal ? FontWeight.w800 : FontWeight.w500, fontSize: isTotal ? 14 : 13)),
+          Text(value, style: TextStyle(fontWeight: FontWeight.w800, fontSize: isTotal ? 16 : 13, color: isTotal ? AppColors.emerald : AppColors.textPrimary)),
+        ],
+      ),
     );
   }
 }
