@@ -1,84 +1,159 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../config/api_config.dart';
+import '../models/user_model.dart';
 
-class AuthService {
-  final String baseUrl;
+/// Authentication state provider managing JWT bearer tokens and user roles
+class AuthService extends ChangeNotifier {
+  UserModel? _currentUser;
+  String? _token;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  UserModel? get currentUser => _currentUser;
+  String? get token => _token;
+  bool get isAuthenticated => _token != null && _currentUser != null;
+  bool get isOperator => _currentUser?.isOperator ?? false;
+  bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
+
   static String? currentToken;
-  static Map<String, dynamic>? currentUser;
 
-  AuthService(String baseUrl) : baseUrl = ApiConfig.normalizeBaseUrl(baseUrl);
+  /// Sign up with email, password, name, and optional role
+  Future<bool> register({
+    required String email,
+    required String password,
+    String? name,
+    String role = 'customer',
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
 
-  Future<Map<String, dynamic>> requestOtp(String phone) async {
-    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/otp'),
-        body: json.encode({'phone': phone}),
-        headers: {'Content-Type': 'application/json'});
-    if (res.statusCode != 200) throw Exception('OTP request failed');
-    return json.decode(res.body);
-  }
+    try {
+      final res = await http.post(
+        Uri.parse(ApiConfig.register),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email.trim().toLowerCase(),
+          'password': password,
+          'name': name?.trim() ?? 'EV User',
+        }),
+      );
 
-  Future<Map<String, dynamic>> verifyOtp(String phone, String code,
-      {String? name}) async {
-    final body = {'phone': phone, 'code': code};
-    if (name != null) body['name'] = name;
-    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/otp/verify'),
-        body: json.encode(body), headers: {'Content-Type': 'application/json'});
-    if (res.statusCode != 200) throw Exception('OTP verify failed');
-    final data = json.decode(res.body) as Map<String, dynamic>;
-    final token = data['token'] as String?;
-    AuthService.currentToken = token;
-    AuthService.currentUser = data['user'] as Map<String, dynamic>? ?? data;
-    return data;
-  }
+      final json = jsonDecode(res.body);
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        _token = json['token']?.toString();
+        currentToken = _token;
+        _currentUser = UserModel.fromJson(json['user'] as Map<String, dynamic>);
 
-  Map<String, String> authHeaders() => AuthService.currentToken != null
-      ? {'Authorization': 'Bearer ${AuthService.currentToken}'}
-      : {};
+        // Update role if selected as operator
+        if (role == 'operator') {
+          await updateRole('operator');
+        }
 
-  Future<Map<String, dynamic>> emailSignUp(String email, String password,
-      {String? name}) async {
-    final body = {'email': email, 'password': password};
-    if (name != null) body['name'] = name;
-    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/register'),
-        body: json.encode(body), headers: {'Content-Type': 'application/json'});
-    if (res.statusCode != 200 && res.statusCode != 201) {
-      throw Exception('Signup failed: ${res.body}');
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } else {
+        _errorMessage = json['error']?.toString() ?? json['message']?.toString() ?? 'Registration failed';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+    } catch (e) {
+      _errorMessage = 'Network connection failed: $e';
+      _isLoading = false;
+      notifyListeners();
+      return false;
     }
-    final data = json.decode(res.body) as Map<String, dynamic>;
-    currentToken = data['token'] as String?;
-    currentUser = data['user'] as Map<String, dynamic>? ?? data;
-    return data;
   }
 
-  Future<Map<String, dynamic>> verifyEmail(String email, String code) async {
-    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/email/verify'),
-        body: json.encode({'email': email, 'code': code}),
-        headers: {'Content-Type': 'application/json'});
-    if (res.statusCode != 200) throw Exception('Email verification failed');
-    final data = json.decode(res.body) as Map<String, dynamic>;
-    currentToken = data['token'] as String?;
-    currentUser = data['user'] as Map<String, dynamic>? ?? data;
-    return data;
+  /// Log in with email and password
+  Future<bool> login({
+    required String email,
+    required String password,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final res = await http.post(
+        Uri.parse(ApiConfig.login),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email.trim().toLowerCase(),
+          'password': password,
+        }),
+      );
+
+      final json = jsonDecode(res.body);
+      if (res.statusCode == 200) {
+        _token = json['token']?.toString();
+        currentToken = _token;
+        _currentUser = UserModel.fromJson(json['user'] as Map<String, dynamic>);
+        _isLoading = false;
+        notifyListeners();
+        return true;
+      } else {
+        _errorMessage = json['error']?.toString() ?? json['message']?.toString() ?? 'Invalid credentials';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+    } catch (e) {
+      _errorMessage = 'Network connection failed: $e';
+      _isLoading = false;
+      notifyListeners();
+      return false;
+    }
   }
 
-  Future<Map<String, dynamic>> emailLogin(String email, String password) async {
-    final res = await http.post(Uri.parse('$baseUrl/api/v1/auth/login'),
-        body: json.encode({'email': email, 'password': password}),
-        headers: {'Content-Type': 'application/json'});
-    if (res.statusCode != 200) throw Exception('Login failed');
-    final data = json.decode(res.body) as Map<String, dynamic>;
-    currentToken = data['token'] as String?;
-    currentUser = data['user'] as Map<String, dynamic>? ?? data;
-    return data;
+  /// Update user role during onboarding
+  Future<bool> updateRole(String newRole) async {
+    if (_token == null) return false;
+    try {
+      final res = await http.patch(
+        Uri.parse(ApiConfig.updateRole),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $_token',
+        },
+        body: jsonEncode({'role': newRole}),
+      );
+
+      final json = jsonDecode(res.body);
+      if (res.statusCode == 200 && json['user'] != null) {
+        _currentUser = UserModel.fromJson(json['user'] as Map<String, dynamic>);
+        notifyListeners();
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
-  /// Placeholder Google sign-in flow: backend should accept token or exchange code.
-  Future<Map<String, dynamic>> googleSignIn() async {
-    throw UnimplementedError('Google sign-in is not wired yet');
+  /// Switch role locally for previewing
+  void togglePreviewRole() {
+    if (_currentUser == null) return;
+    final newRole = _currentUser!.role == 'operator' ? 'customer' : 'operator';
+    _currentUser = UserModel(
+      id: _currentUser!.id,
+      email: _currentUser!.email,
+      name: _currentUser!.name,
+      phone: _currentUser!.phone,
+      role: newRole,
+      emailVerified: _currentUser!.emailVerified,
+    );
+    notifyListeners();
   }
 
-  static Future<void> logout() async {
+  /// Sign out
+  void logout() {
+    _currentUser = null;
+    _token = null;
     currentToken = null;
-    currentUser = null;
+    notifyListeners();
   }
 }

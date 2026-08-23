@@ -1,452 +1,426 @@
 import 'dart:async';
-
-import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:qr_flutter/qr_flutter.dart';
-
-import '../main.dart';
-import '../models/station.dart';
+import 'package:http/http.dart' as http;
+import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import '../config/api_config.dart';
+import '../models/station_model.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
+import '../theme/app_colors.dart';
+import '../widgets/glass_container.dart';
+import '../widgets/dynamic_qr_view.dart';
 
+/// Full Touchscreen Kiosk EVSE Hardware Simulator
 class KioskScreen extends StatefulWidget {
-  final Station? initialStation;
-  const KioskScreen({super.key, this.initialStation});
+  final String? stationId;
+
+  const KioskScreen({super.key, this.stationId});
 
   @override
   State<KioskScreen> createState() => _KioskScreenState();
 }
 
 class _KioskScreenState extends State<KioskScreen> {
-  final _api = ApiService(backendBase);
-  List<Station> _stations = const [];
-  Station? _station;
-  Map<String, dynamic>? _state;
-  Timer? _poller;
+  List<StationModel> _stations = [];
+  StationModel? _selectedStation;
+  bool _isLoading = true;
+
+  // Kiosk hardware state
+  Map<String, dynamic>? _kioskState;
+  bool _isCablePlugged = false;
+  bool _isStreaming = false;
+  double _livePowerKw = 58.4;
+  double _liveSoc = 42.0;
+  double _batteryTemp = 32.4;
+  int _cumulativeEnergyWh = 0;
   Timer? _telemetryTimer;
-  bool _loading = true;
-  bool _streaming = false;
-  double _power = 60;
-  double _soc = 38;
-  double _temperature = 32.4;
-  double _energyWh = 0;
+  Map<String, dynamic>? _invoice;
 
   @override
   void initState() {
     super.initState();
-    _station = widget.initialStation;
-    _loadStations();
-    _poller = Timer.periodic(
-        const Duration(seconds: 5), (_) => _loadState(silent: true));
+    _loadKiosk();
   }
 
   @override
   void dispose() {
-    _poller?.cancel();
     _telemetryTimer?.cancel();
     super.dispose();
   }
 
-  Future<void> _loadStations() async {
+  Future<void> _loadKiosk() async {
+    setState(() => _isLoading = true);
+    final stations = await ApiService.getStations();
+    if (mounted && stations.isNotEmpty) {
+      _stations = stations;
+      _selectedStation = widget.stationId != null
+          ? stations.firstWhere((s) => s.id == widget.stationId, orElse: () => stations.first)
+          : stations.first;
+      await _fetchKioskState();
+    }
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> _fetchKioskState() async {
+    if (_selectedStation == null) return;
     try {
-      final stations = await _api.fetchStations();
-      if (!mounted) return;
-      setState(() {
-        _stations = stations;
-        if (_station == null || _station!.isDemo) {
-          _station = stations.isEmpty ? null : stations.first;
+      final token = AuthService.currentToken;
+      final res = await http.get(
+        Uri.parse(ApiConfig.kioskState(_selectedStation!.id)),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (res.statusCode == 200) {
+        final json = jsonDecode(res.body);
+        if (mounted) {
+          setState(() {
+            _kioskState = json['data'];
+            if (_kioskState?['activeSession'] != null) {
+              _cumulativeEnergyWh = int.tryParse(_kioskState!['activeSession']['energyWh']?.toString() ?? '') ?? 0;
+              _isCablePlugged = true;
+            }
+          });
         }
-      });
-      await _loadState();
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
-    }
+      }
+    } catch (_) {}
   }
 
-  Future<void> _loadState({bool silent = false}) async {
-    final station = _station;
-    if (station == null || station.isDemo) {
-      if (mounted && !silent) setState(() => _loading = false);
-      return;
-    }
-    try {
-      final state = await _api.kioskState(station.id);
-      if (mounted) setState(() => _state = state);
-    } catch (_) {
-      // A kiosk is still usable locally when the authenticated CPO feed is absent.
-    } finally {
-      if (mounted && !silent) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _start() async {
-    final station = _station;
-    if (station == null) return;
-    try {
-      final connector = _state?['connector'] is Map
-          ? _state!['connector']['id']?.toString()
-          : null;
-      await _api.startKioskSession(station.id, connector);
-      if (!mounted) return;
-      setState(() {
-        _streaming = true;
-        _energyWh = 0;
-      });
-      _startTelemetry();
-      await _loadState();
-    } catch (error) {
-      _show('$error');
-    }
-  }
-
-  void _startTelemetry() {
+  void _startTelemetryStream() {
     _telemetryTimer?.cancel();
+    _isStreaming = true;
     _telemetryTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
-      if (!_streaming || _station == null) return;
-      final nextEnergy = _energyWh + (_power * 1000 / 1800);
-      final nextSoc = (_soc + .18).clamp(0, 100).toDouble();
+      if (_selectedStation == null || _kioskState?['activeSession'] == null) return;
+
+      final deltaWh = ((_livePowerKw * 1000) / 3600 * 2).round();
+      final nextWh = _cumulativeEnergyWh + deltaWh;
+      final nextSoc = (_liveSoc + 0.2).clamp(0.0, 100.0);
+
       setState(() {
-        _energyWh = nextEnergy;
-        _soc = nextSoc;
-        _temperature = (_temperature + .03).clamp(20, 48).toDouble();
+        _cumulativeEnergyWh = nextWh;
+        _liveSoc = nextSoc;
       });
+
+      final token = AuthService.currentToken;
       try {
-        await _api.sendTelemetry(_station!.id,
-            energyWh: _energyWh,
-            powerKw: _power,
-            socPercent: _soc,
-            batteryTempC: _temperature);
+        await http.post(
+          Uri.parse(ApiConfig.kioskTelemetry(_selectedStation!.id)),
+          headers: {
+            'Content-Type': 'application/json',
+            if (token != null) 'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'energyWh': nextWh,
+            'powerKw': _livePowerKw,
+            'voltage': 400.0,
+            'current': 146.0,
+            'socPercent': nextSoc,
+            'batteryTempC': _batteryTemp,
+            'chargerTempC': 38.2,
+          }),
+        );
       } catch (_) {}
     });
   }
 
-  Future<void> _stop() async {
-    final station = _station;
-    if (station == null) return;
+  Future<void> _handleHardwareStart() async {
+    if (_selectedStation == null) return;
+    final token = AuthService.currentToken;
+
     try {
-      final result = await _api.stopKioskSession(station.id, _energyWh);
-      if (!mounted) return;
-      setState(() => _streaming = false);
-      _telemetryTimer?.cancel();
-      await _loadState();
-      final invoice = result['invoice'] is Map
-          ? Map<String, dynamic>.from(result['invoice'])
-          : result;
-      _showInvoice(invoice);
-    } catch (error) {
-      _show('$error');
+      final res = await http.post(
+        Uri.parse(ApiConfig.kioskStart(_selectedStation!.id)),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'connectorId': _selectedStation!.connectors.first.id,
+        }),
+      );
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        setState(() {
+          _isCablePlugged = true;
+          _invoice = null;
+        });
+        await _fetchKioskState();
+        _startTelemetryStream();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleHardwareStop() async {
+    if (_selectedStation == null) return;
+    _telemetryTimer?.cancel();
+    _isStreaming = false;
+
+    final token = AuthService.currentToken;
+    try {
+      final res = await http.post(
+        Uri.parse(ApiConfig.kioskStop(_selectedStation!.id)),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'finalEnergyWh': _cumulativeEnergyWh,
+        }),
+      );
+
+      if (res.statusCode == 200) {
+        final json = jsonDecode(res.body);
+        setState(() {
+          _invoice = json['data']?['invoice'];
+        });
+        await _fetchKioskState();
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: AppColors.background,
+        body: Center(child: CircularProgressIndicator(color: AppColors.emerald)),
+      );
     }
-  }
 
-  void _show(String value) => ScaffoldMessenger.of(context)
-      .showSnackBar(SnackBar(content: Text(value)));
-  void _showInvoice(Map<String, dynamic> invoice) => showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF121B29),
-      builder: (_) => SafeArea(
-          child: Padding(
-              padding: const EdgeInsets.all(22),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(FluentIcons.checkmark_circle_24_filled,
-                    color: Color(0xFF65D7A5), size: 42),
-                const SizedBox(height: 10),
-                const Text('Charging session completed',
-                    style:
-                        TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 14),
-                _InvoiceRow('Energy delivered',
-                    '${invoice['energyDeliveredKwh'] ?? (_energyWh / 1000).toStringAsFixed(2)} kWh'),
-                _InvoiceRow(
-                    'Connection fee', '₹${invoice['flatConnectionFee'] ?? 20}'),
-                _InvoiceRow('GST', '₹${invoice['gst18'] ?? '—'}'),
-                const Divider(),
-                _InvoiceRow('Total due', '₹${invoice['totalAmount'] ?? '—'}',
-                    bold: true),
-                const SizedBox(height: 12),
-                SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Pay from My Sessions'))),
-              ]))));
+    final isCharging = _kioskState?['activeSession'] != null;
+    final isReserved = _kioskState?['activeBooking'] != null && !isCharging;
+    final dynamicQr = _kioskState?['qr']?['token']?.toString() ?? 'SAMPLE_URJAA_TOTP_TOKEN';
 
-  @override
-  Widget build(BuildContext context) {
-    final station = _station;
-    final state = _state;
-    final active = state?['activeSession'] != null || _streaming;
-    final qr = state?['qr'] is Map ? state!['qr']['token']?.toString() : null;
-    final visualState = state?['visualState']?.toString() ??
-        (active ? 'CHARGING' : 'FREE');
-    final toneColor = _toneColor(visualState);
-    final connector = state?['connector'] is Map
-        ? Map<String, dynamic>.from(state!['connector'])
-        : const <String, dynamic>{};
-    final tariff = state?['tariff'] is Map
-        ? Map<String, dynamic>.from(state!['tariff'])
-        : const <String, dynamic>{};
-    final liveCost = ((_energyWh / 1000) *
-                (double.tryParse('${tariff['pricePerKwh'] ?? 12.5}') ?? 12.5) +
-            (double.tryParse('${tariff['flatFee'] ?? 20}') ?? 20)) *
-        1.18;
     return Scaffold(
-        appBar: AppBar(title: const Text('Station kiosk')),
-        body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(color: Color(0xFF65D7A5)))
-            : ListView(padding: const EdgeInsets.all(18), children: [
-                if (_stations.isNotEmpty)
-                  DropdownButtonFormField<Station>(
-                      initialValue: station,
-                      isExpanded: true,
-                      items: _stations
-                          .map((item) => DropdownMenuItem(
-                              value: item,
-                              child: Text('${item.name} • ${item.city}',
-                                  overflow: TextOverflow.ellipsis)))
-                          .toList(),
-                      onChanged: (value) {
+      backgroundColor: AppColors.background,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Top Kiosk EVSE Header
+            GlassContainer(
+              borderColor: isCharging ? AppColors.sky : (isReserved ? AppColors.amber : AppColors.emerald),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.emerald.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(FluentIcons.gauge_24_filled, color: AppColors.emerald, size: 20),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(_selectedStation?.name ?? 'EV Charger Kiosk',
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                              Text('${_selectedStation?.city} · 60kW CCS2 DC Fast',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: (isCharging ? AppColors.sky : isReserved ? AppColors.amber : AppColors.emerald).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          isCharging ? '⚡ CHARGING' : isReserved ? '🕒 RESERVED' : '● AVAILABLE',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: isCharging ? AppColors.sky : isReserved ? AppColors.amber : AppColors.emerald,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Kiosk Display Screen Body
+            if (_invoice != null) ...[
+              // Invoice Screen
+              GlassContainer(
+                borderColor: AppColors.emerald,
+                child: Column(
+                  children: [
+                    const Icon(FluentIcons.checkmark_circle_24_filled, color: AppColors.emerald, size: 48),
+                    const SizedBox(height: 12),
+                    const Text('Charging Completed', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                    const Text('Tax invoice generated. Ready for payment in user app.', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    const SizedBox(height: 16),
+
+                    _invoiceRow('Energy Delivered', '${_invoice!['energyDeliveredKwh']} kWh'),
+                    _invoiceRow('Duration', '${_invoice!['durationMinutes']} mins'),
+                    _invoiceRow('Base Energy Cost', '₹${_invoice!['baseEnergyCost']}'),
+                    _invoiceRow('Connection Fee', '₹${_invoice!['flatConnectionFee']}'),
+                    _invoiceRow('GST (18%)', '₹${_invoice!['gst18']}'),
+                    const Divider(height: 20),
+                    _invoiceRow('Total Due', '₹${_invoice!['totalAmount']} INR', isTotal: true),
+                    const SizedBox(height: 16),
+
+                    ElevatedButton(
+                      onPressed: () => setState(() => _invoice = null),
+                      child: const Text('Back to Kiosk Screen'),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (isCharging) ...[
+              // Active Telemetry Dials
+              GlassContainer(
+                borderColor: AppColors.sky,
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Battery State of Charge (SoC)', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                        Text('${_liveSoc.toStringAsFixed(1)}% · Pack ${_batteryTemp}°C',
+                            style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.sky)),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: _liveSoc / 100,
+                        minHeight: 10,
+                        backgroundColor: AppColors.surfaceElevated,
+                        color: AppColors.sky,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _dialTile('Power Output', '${_livePowerKw} kW'),
+                        _dialTile('Energy Delivered', '${(_cumulativeEnergyWh / 1000).toStringAsFixed(2)} kWh'),
+                        _dialTile('Bus Voltage', '400 V (146A)'),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Remote Hardware Stop
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _handleHardwareStop,
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.crimson),
+                        icon: const Icon(FluentIcons.stop_24_filled, size: 18, color: Colors.white),
+                        label: const Text('Stop Charging (Kiosk)', style: TextStyle(color: Colors.white)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // Dynamic QR Box
+              Center(
+                child: DynamicQrView(
+                  qrToken: dynamicQr,
+                  isOccupied: isReserved,
+                  stationName: _selectedStation?.name ?? 'Charging Hub',
+                  onRefresh: _fetchKioskState,
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+
+            // Hardware Controls Panel
+            const Text('Hardware Simulator Controls', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 12),
+
+            GlassContainer(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Station Dropdown Switcher
+                  DropdownButtonFormField<String>(
+                    value: _selectedStation?.id,
+                    decoration: const InputDecoration(labelText: 'Select Station to Simulate'),
+                    items: _stations.map((s) {
+                      return DropdownMenuItem(value: s.id, child: Text('${s.name} (${s.city})'));
+                    }).toList(),
+                    onChanged: (val) {
+                      if (val != null) {
                         setState(() {
-                          _station = value;
-                          _state = null;
-                          _energyWh = 0;
+                          _selectedStation = _stations.firstWhere((s) => s.id == val);
                         });
-                        _loadState();
-                      },
-                      decoration:
-                          const InputDecoration(labelText: 'Charging station')),
-                const SizedBox(height: 16),
-                Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                            colors: [Color(0xFF183D3A), Color(0xFF121B29)]),
-                        borderRadius: BorderRadius.circular(26),
-                        border: Border.all(
-                            color: toneColor.withValues(alpha: .35))),
-                    child: Column(children: [
-                      Row(children: [
-                        const Icon(FluentIcons.flash_24_regular,
-                            color: Color(0xFF86EAB6)),
-                        const SizedBox(width: 9),
-                        Expanded(
-                            child: Text(
-                                station?.name ??
-                                    'No available connected station',
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 16))),
-                        _StatePill(active: active, visualState: visualState)
-                      ]),
-                      const SizedBox(height: 5),
-                      Text(
-                          '${connector['standard'] ?? 'CCS2'} • ${connector['maxPowerKw'] ?? station?.connectors.firstOrNull?.maxPowerKw ?? '—'} kW',
-                          style: const TextStyle(
-                              color: Color(0xFFAAB8C9), fontSize: 12)),
-                      const SizedBox(height: 19),
-                      if (!active && qr != null) ...[
-                        Container(
-                            padding: const EdgeInsets.all(12),
-                            color: Colors.white,
-                            child: QrImageView(data: qr, size: 170)),
-                        const SizedBox(height: 10),
-                        const Text('Rotating, HMAC-signed arrival QR',
-                            style: TextStyle(
-                                color: Color(0xFF9BEBC0),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700))
-                      ] else if (active) ...[
-                        Text('${_soc.toStringAsFixed(0)}%',
-                            style: const TextStyle(
-                                fontSize: 48,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF8DEBBC))),
-                        const Text('battery state of charge',
-                            style: TextStyle(
-                                color: Color(0xFFA9B7C7), fontSize: 11)),
-                        const SizedBox(height: 9),
-                        LinearProgressIndicator(
-                            value: _soc / 100,
-                            minHeight: 9,
-                            color: toneColor,
-                            backgroundColor: Colors.white12,
-                            borderRadius: BorderRadius.circular(99)),
-                        const SizedBox(height: 17),
-                        Row(children: [
-                          _TelemetryMetric(
-                              value: '${_power.toStringAsFixed(0)} kW',
-                              label: 'output'),
-                          _TelemetryMetric(
-                              value:
-                                  '${(_energyWh / 1000).toStringAsFixed(2)} kWh',
-                              label: 'delivered'),
-                          _TelemetryMetric(
-                              value: '₹${liveCost.toStringAsFixed(2)}',
-                              label: 'live bill')
-                        ]),
-                      ] else
-                        const Text(
-                            'Choose a real station from the live CPO feed to receive a secure QR and charger controls.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                color: Color(0xFFAAB8C9), fontSize: 12)),
-                    ])),
-                const SizedBox(height: 16),
-                if (active)
-                  _HardwareControls(
-                      power: _power,
-                      temperature: _temperature,
-                      onPower: (value) => setState(() => _power = value),
-                      onTemperature: (value) =>
-                          setState(() => _temperature = value))
-                else
-                  _DiagnosticCard(diagnostics: state?['hardwareDiagnostics']),
-                const SizedBox(height: 16),
-                SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                        onPressed: station == null
-                            ? null
-                            : active
-                                ? _stop
-                                : _start,
-                        icon: Icon(active
-                            ? FluentIcons.stop_24_regular
-                            : FluentIcons.play_24_regular),
-                        label: Text(active
-                            ? 'Stop charge & issue invoice'
-                            : 'Plug & authorise session'))),
-              ]));
+                        _fetchKioskState();
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
+                  if (!isCharging)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _handleHardwareStart,
+                        icon: const Icon(FluentIcons.plug_connected_24_filled, size: 18),
+                        label: const Text('Simulate Plug-in & Hardware Start'),
+                      ),
+                    )
+                  else ...[
+                    Text('Power Delivery Rate: ${_livePowerKw.toInt()} kW', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    Slider(
+                      value: _livePowerKw,
+                      min: 10,
+                      max: 150,
+                      divisions: 14,
+                      activeColor: AppColors.emerald,
+                      onChanged: (val) => setState(() => _livePowerKw = val),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
-}
 
-Color _toneColor(String visualState) {
-  switch (visualState.toUpperCase()) {
-    case 'FREE':
-    case 'AVAILABLE':
-      return const Color(0xFF65D7A5);
-    case 'BOOKED':
-    case 'QUEUED':
-      return const Color(0xFF88C9FF);
-    case 'EMERGENCY':
-      return const Color(0xFFFF8F8A);
-    case 'CHARGING':
-      return const Color(0xFFFFB15C);
-    default:
-      return const Color(0xFF94A0B1);
+  Widget _invoiceRow(String label, String value, {bool isTotal = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: isTotal ? 15 : 13, fontWeight: isTotal ? FontWeight.w800 : FontWeight.w500, color: isTotal ? AppColors.textPrimary : AppColors.textSecondary)),
+          Text(value, style: TextStyle(fontSize: isTotal ? 17 : 13, fontWeight: isTotal ? FontWeight.w900 : FontWeight.w700, color: isTotal ? AppColors.emerald : AppColors.textPrimary)),
+        ],
+      ),
+    );
   }
-}
 
-class _StatePill extends StatelessWidget {
-  final bool active;
-  final String visualState;
-  const _StatePill({required this.active, required this.visualState});
-  @override
-  Widget build(BuildContext context) {
-    final color = _toneColor(visualState);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-      decoration: BoxDecoration(
-          color: color.withValues(alpha: .15),
-          borderRadius: BorderRadius.circular(99)),
-      child: Text(active ? '● CHARGING' : '● ${visualState.toUpperCase()}',
-          style: TextStyle(
-              color: color,
-              fontSize: 9,
-              fontWeight: FontWeight.w800)));
+  Widget _dialTile(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+        const SizedBox(height: 2),
+        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+      ],
+    );
   }
-}
-
-class _TelemetryMetric extends StatelessWidget {
-  final String value;
-  final String label;
-  const _TelemetryMetric({required this.value, required this.label});
-  @override
-  Widget build(BuildContext context) => Expanded(
-          child: Column(children: [
-        Text(value,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
-        Text(label,
-            style: const TextStyle(color: Color(0xFF9DAABC), fontSize: 9))
-      ]));
-}
-
-class _HardwareControls extends StatelessWidget {
-  final double power;
-  final double temperature;
-  final ValueChanged<double> onPower;
-  final ValueChanged<double> onTemperature;
-  const _HardwareControls(
-      {required this.power,
-      required this.temperature,
-      required this.onPower,
-      required this.onTemperature});
-  @override
-  Widget build(BuildContext context) => Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-          color: const Color(0xFF121B29),
-          borderRadius: BorderRadius.circular(20)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Hardware & CPO controls',
-            style: TextStyle(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 10),
-        Text('Power output • ${power.toStringAsFixed(0)} kW',
-            style: const TextStyle(color: Color(0xFFAAB8C9), fontSize: 12)),
-        Slider(
-            value: power, min: 10, max: 150, divisions: 28, onChanged: onPower),
-        Text('Battery pack temperature • ${temperature.toStringAsFixed(1)}°C',
-            style: const TextStyle(color: Color(0xFFAAB8C9), fontSize: 12)),
-        Slider(
-            value: temperature,
-            min: 20,
-            max: 55,
-            divisions: 35,
-            onChanged: onTemperature)
-      ]));
-}
-
-class _DiagnosticCard extends StatelessWidget {
-  final dynamic diagnostics;
-  const _DiagnosticCard({this.diagnostics});
-  @override
-  Widget build(BuildContext context) {
-    final data = diagnostics is Map
-        ? Map<String, dynamic>.from(diagnostics)
-        : const <String, dynamic>{};
-    return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-            color: const Color(0xFF121B29),
-            borderRadius: BorderRadius.circular(20)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Kiosk hardware diagnostics',
-              style: TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
-          Text(
-              'Grid ${data['gridFrequencyHz'] ?? '50.02'} Hz • PF ${data['powerFactor'] ?? '0.99'}\nCable ${data['cableLockStatus'] ?? 'UNLOCKED'} • Firmware ${data['firmwareVersion'] ?? 'secure channel pending'}',
-              style: const TextStyle(
-                  color: Color(0xFFAAB8C9), fontSize: 11, height: 1.45))
-        ]));
-  }
-}
-
-class _InvoiceRow extends StatelessWidget {
-  final String label;
-  final String value;
-  final bool bold;
-  const _InvoiceRow(this.label, this.value, {this.bold = false});
-  @override
-  Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(children: [
-        Text(label,
-            style: TextStyle(
-                color: bold ? Colors.white : const Color(0xFFAAB8C9),
-                fontWeight: bold ? FontWeight.w800 : FontWeight.normal)),
-        const Spacer(),
-        Text(value,
-            style: TextStyle(
-                color: bold ? const Color(0xFF8DEBBC) : Colors.white,
-                fontWeight: bold ? FontWeight.w800 : FontWeight.normal))
-      ]));
 }

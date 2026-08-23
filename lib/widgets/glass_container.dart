@@ -1,36 +1,59 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
 
+/// Frosted Glassmorphism Container with customizable glowing borders
 class GlassContainer extends StatelessWidget {
   final Widget child;
+  final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
   final double borderRadius;
-  final EdgeInsets padding;
-  final Color? color;
+  final Color? backgroundColor;
+  final Color? borderColor;
+  final double borderWidth;
+  final VoidCallback? onTap;
 
   const GlassContainer({
     super.key,
     required this.child,
-    this.borderRadius = 16,
-    this.padding = const EdgeInsets.all(12),
-    this.color,
+    this.padding,
+    this.margin,
+    this.borderRadius = 20.0,
+    this.backgroundColor,
+    this.borderColor,
+    this.borderWidth = 1.0,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 8.0, sigmaY: 8.0),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: color ?? Colors.white.withValues(alpha: 0.03),
-            borderRadius: BorderRadius.circular(borderRadius),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
-          ),
-          child: child,
+    final container = Container(
+      margin: margin,
+      padding: padding ?? const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: backgroundColor ?? AppColors.surfaceCard,
+        borderRadius: BorderRadius.circular(borderRadius),
+        border: Border.all(
+          color: borderColor ?? AppColors.borderSubtle,
+          width: borderWidth,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
+      child: child,
     );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(borderRadius),
+        child: container,
+      );
+    }
+    return container;
   }
 }

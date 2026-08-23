@@ -2,38 +2,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uei_app/config/api_config.dart';
 
 void main() {
-  group('ApiConfig', () {
-    test('uses production API when the configured value is empty or relative',
-        () {
-      expect(ApiConfig.normalizeBaseUrl(''), ApiConfig.productionBaseUrl);
+  group('ApiConfig Tests', () {
+    test('defaultBaseUrl points to Azure production backend', () {
       expect(
-        ApiConfig.normalizeBaseUrl('/api'),
-        ApiConfig.productionBaseUrl,
+        ApiConfig.defaultBaseUrl,
+        'https://bhev-api.wittybay-7a064b00.centralindia.azurecontainerapps.io',
       );
     });
 
-    test('normalizes a configured API root', () {
-      expect(
-        ApiConfig.normalizeBaseUrl('https://example.com/api/v1/'),
-        'https://example.com',
-      );
-      expect(
-        ApiConfig.normalizeBaseUrl('http://10.0.2.2:3000/'),
-        'http://10.0.2.2:3000',
-      );
-    });
-
-    test('creates absolute endpoints with query parameters', () {
-      final endpoint = ApiConfig.endpoint(
-        '',
-        '/api/v1/stations',
-        queryParameters: {'limit': '25'},
-      );
-
-      expect(endpoint.hasScheme, isTrue);
-      expect(endpoint.host, isNotEmpty);
-      expect(endpoint.path, '/api/v1/stations');
-      expect(endpoint.queryParameters['limit'], '25');
+    test('endpoint getters generate valid URI paths', () {
+      expect(ApiConfig.login, contains('/api/v1/auth/login'));
+      expect(ApiConfig.register, contains('/api/v1/auth/register'));
+      expect(ApiConfig.stations, contains('/api/v1/stations'));
+      expect(ApiConfig.nearbyStations, contains('/api/v1/stations/nearby'));
+      expect(ApiConfig.createBooking, contains('/api/v1/bookings'));
+      expect(ApiConfig.verifyArrivalQr, contains('/api/v1/arrivals/verify'));
+      expect(ApiConfig.activeSession, contains('/api/v1/sessions/active'));
+      expect(ApiConfig.operatorStations, contains('/api/v1/operator/stations'));
+      expect(ApiConfig.operatorBookings, contains('/api/v1/operator/bookings'));
+      expect(ApiConfig.operatorQueue, contains('/api/v1/operator/queue'));
+      expect(ApiConfig.operatorReviews, contains('/api/v1/operator/reviews'));
     });
   });
 }

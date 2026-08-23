@@ -1,35 +1,36 @@
 import 'package:flutter/material.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
-
-import '../main.dart';
-import '../models/station.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../models/station_model.dart';
+import '../theme/app_colors.dart';
 import '../widgets/glass_container.dart';
-import '../widgets/reliability_smile.dart';
 import '../widgets/station_preview_sheet.dart';
-import '../widgets/mappls_station_map.dart';
+import 'station_details.dart';
+import 'booking_screen.dart';
 
-final apiService = ApiService(backendBase);
-
+/// Discover screen with city filter pills, connector search, and interactive station cards
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late Future<List<Station>> _stations;
-  final _searchController = TextEditingController();
-  bool _availableOnly = false;
-  bool _fastChargeOnly = false;
-  AppLocation? _location;
-  String? _locationNotice;
+  final TextEditingController _searchController = TextEditingController();
+  List<StationModel> _stations = [];
+  bool _isLoading = true;
+  String _selectedCity = 'All';
+  String _selectedFilter = 'All'; // All, DC Fast, Type 2, Available
+
+  final List<String> _cities = ['All', 'Bengaluru', 'Delhi', 'Mumbai', 'Hyderabad', 'Chennai'];
+  final List<String> _filters = ['All', '⚡ DC Fast (50kW+)', 'Type 2 AC', '🟢 Available Now'];
 
   @override
   void initState() {
     super.initState();
-    _stations = _loadNearbyStations();
+    _loadStations();
   }
 
   @override
@@ -38,592 +39,343 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> _reload() async {
-    setState(() => _stations = _loadNearbyStations());
-    await _stations;
-  }
+  Future<void> _loadStations() async {
+    setState(() => _isLoading = true);
+    final pos = await LocationService.getCurrentPosition();
+    List<StationModel> list;
 
-  Future<List<Station>> _loadNearbyStations() async {
-    try {
-      final location = await LocationService.determineCurrentLocation();
-      if (mounted)
-        setState(() {
-          _location = location;
-          _locationNotice = null;
-        });
-      return apiService.fetchStations(
-        latitude: location.lat,
-        longitude: location.lng,
-        radiusKm: 75,
+    if (pos != null) {
+      list = await ApiService.getNearbyStations(latitude: pos.latitude, longitude: pos.longitude);
+    } else {
+      list = await ApiService.getStations(
+        city: _selectedCity == 'All' ? null : _selectedCity,
+        search: _searchController.text.trim(),
       );
-    } on LocationServiceException catch (error) {
-      if (mounted) setState(() => _locationNotice = error.message);
-      return apiService.fetchStations();
     }
+
+    setState(() {
+      _stations = list;
+      _isLoading = false;
+    });
   }
 
-  List<Station> _filterStations(List<Station> stations) {
-    final query = _searchController.text.trim().toLowerCase();
-    final filtered = stations.where((station) {
-      final haystack =
-          '${station.name} ${station.address} ${station.city} ${station.operatorName}'
-              .toLowerCase();
-      final fastCharge =
-          station.connectors.any((connector) => connector.maxPowerKw >= 50);
-      return (query.isEmpty || haystack.contains(query)) &&
-          (!_availableOnly || station.availableConnectors > 0) &&
-          (!_fastChargeOnly || fastCharge);
+  List<StationModel> get _filteredStations {
+    return _stations.where((s) {
+      if (_selectedCity != 'All' && !s.city.toLowerCase().contains(_selectedCity.toLowerCase())) {
+        return false;
+      }
+      if (_selectedFilter == '⚡ DC Fast (50kW+)' && !s.isFastDc) {
+        return false;
+      }
+      if (_selectedFilter == 'Type 2 AC' && !s.connectors.any((c) => c.standard.contains('Type2'))) {
+        return false;
+      }
+      if (_selectedFilter == '🟢 Available Now' && s.availableConnectors == 0) {
+        return false;
+      }
+      if (_searchController.text.isNotEmpty) {
+        final q = _searchController.text.toLowerCase();
+        return s.name.toLowerCase().contains(q) || s.address.toLowerCase().contains(q) || s.city.toLowerCase().contains(q);
+      }
+      return true;
     }).toList();
-    if (_location != null) {
-      filtered.sort((a, b) =>
-          _location!.distanceKmTo(a).compareTo(_location!.distanceKmTo(b)));
-    }
-    return filtered;
   }
 
-  void _showPreview(Station station) => showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => FractionallySizedBox(
-            heightFactor: 0.72, child: StationPreviewSheet(station: station)),
-      );
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        body: SafeArea(
-          child: FutureBuilder<List<Station>>(
-            future: _stations,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const _DiscoveryLoading();
-              }
-              final liveStations = snapshot.hasError
-                  ? const <Station>[]
-                  : snapshot.data ?? const <Station>[];
-              final stations = _filterStations(liveStations);
-              return Stack(
-                children: [
-                  Positioned.fill(
-                    child: Stack(
-                      children: [
-                        MapplsStationMap(
-                          stations: stations,
-                          onStationTap: _showPreview,
-                          originPoint: _location?.point,
-                        ),
-                        Positioned.fill(
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  const Color(0xFF08121E)
-                                      .withValues(alpha: 0.32),
-                                  const Color(0xFF0B0F17)
-                                      .withValues(alpha: 0.98)
-                                ],
-                                stops: const [0, 0.43],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                        child: _DiscoveryHeader(
-                          onRefresh: _reload,
-                          locationNotice: _locationNotice,
-                          hasLocation: _location != null,
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                        child: _SearchBox(
-                          controller: _searchController,
-                          onChanged: (_) => setState(() {}),
-                          onClear: () {
-                            _searchController.clear();
-                            setState(() {});
-                          },
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                        child: _DiscoveryFilters(
-                          availableOnly: _availableOnly,
-                          fastChargeOnly: _fastChargeOnly,
-                          onAvailable: (value) =>
-                              setState(() => _availableOnly = value),
-                          onFast: (value) =>
-                              setState(() => _fastChargeOnly = value),
-                        ),
-                      ),
-                      Expanded(
-                        child: RefreshIndicator(
-                          onRefresh: _reload,
-                          color: const Color(0xFF65D7A5),
-                          backgroundColor: const Color(0xFF17202E),
-                          child: ListView(
-                            padding: const EdgeInsets.fromLTRB(16, 84, 16, 24),
-                            children: [
-                              _ResultsHeading(count: stations.length),
-                              const SizedBox(height: 10),
-                              if (stations.isEmpty)
-                                _EmptyState(
-                                  hasError: snapshot.hasError,
-                                  onClear: () {
-                                    _searchController.clear();
-                                    setState(() {
-                                      _availableOnly = false;
-                                      _fastChargeOnly = false;
-                                    });
-                                    _reload();
-                                  },
-                                )
-                              else
-                                ...stations.map((station) => Padding(
-                                      padding:
-                                          const EdgeInsets.only(bottom: 12),
-                                      child: _StationSearchCard(
-                                          station: station,
-                                          onTap: () => _showPreview(station)),
-                                    )),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      );
-}
-
-class _DiscoveryHeader extends StatelessWidget {
-  final VoidCallback onRefresh;
-  final bool hasLocation;
-  final String? locationNotice;
-  const _DiscoveryHeader({
-    required this.onRefresh,
-    required this.hasLocation,
-    this.locationNotice,
-  });
-
-  @override
-  Widget build(BuildContext context) => Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-                color: const Color(0xFF65D7A5).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(13),
-                border: Border.all(
-                    color: const Color(0xFF65D7A5).withValues(alpha: 0.27))),
-            child: const Icon(FluentIcons.flash_24_regular,
-                color: Color(0xFF83EAB3), size: 21),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('CHARGEGRID',
-                  style: TextStyle(
-                      fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-              Text(
-                  hasLocation
-                      ? 'NEARBY CHARGING POINTS • LIVE NETWORK'
-                      : locationNotice ?? 'DISCOVER • LIVE NETWORK',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: Color(0xFF91A0B4),
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.7)),
-            ]),
-          ),
-          GlassContainer(
-            padding: EdgeInsets.zero,
-            borderRadius: 13,
-            child: IconButton(
-                onPressed: onRefresh,
-                icon: const Icon(FluentIcons.arrow_sync_24_regular,
-                    color: Color(0xFF9AECC1), size: 20),
-                tooltip: 'Refresh station status'),
-          ),
-        ],
-      );
-}
-
-class _SearchBox extends StatelessWidget {
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onClear;
-  const _SearchBox(
-      {required this.controller,
-      required this.onChanged,
-      required this.onClear});
-
-  @override
-  Widget build(BuildContext context) => TextField(
-        controller: controller,
-        onChanged: onChanged,
-        textInputAction: TextInputAction.search,
-        decoration: InputDecoration(
-          hintText: 'Search city, station or operator',
-          prefixIcon: const Icon(FluentIcons.search_24_regular,
-              color: Color(0xFF8DF0BD)),
-          suffixIcon: controller.text.isEmpty
-              ? const Icon(FluentIcons.location_24_regular,
-                  color: Color(0xFF9CA9BB))
-              : IconButton(
-                  onPressed: onClear,
-                  icon: const Icon(FluentIcons.dismiss_24_regular,
-                      color: Color(0xFFB5C0D0))),
-          contentPadding: const EdgeInsets.symmetric(vertical: 15),
-        ),
-      );
-}
-
-class _DiscoveryFilters extends StatelessWidget {
-  final bool availableOnly;
-  final bool fastChargeOnly;
-  final ValueChanged<bool> onAvailable;
-  final ValueChanged<bool> onFast;
-  const _DiscoveryFilters(
-      {required this.availableOnly,
-      required this.fastChargeOnly,
-      required this.onAvailable,
-      required this.onFast});
-
-  @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(children: [
-          _FilterPill(
-              label: 'Available now',
-              icon: FluentIcons.checkmark_circle_16_filled,
-              selected: availableOnly,
-              onSelected: onAvailable),
-          const SizedBox(width: 8),
-          _FilterPill(
-              label: 'Fast charge',
-              icon: FluentIcons.flash_16_filled,
-              selected: fastChargeOnly,
-              onSelected: onFast),
-          const SizedBox(width: 8),
-          const _LivePill(),
-        ]),
-      );
-}
-
-class _FilterPill extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final bool selected;
-  final ValueChanged<bool> onSelected;
-  const _FilterPill(
-      {required this.label,
-      required this.icon,
-      required this.selected,
-      required this.onSelected});
-
-  @override
-  Widget build(BuildContext context) => FilterChip(
-        selected: selected,
-        onSelected: onSelected,
-        showCheckmark: false,
-        avatar: Icon(icon,
-            size: 15,
-            color:
-                selected ? const Color(0xFF072218) : const Color(0xFF9AA9BC)),
-        label: Text(label,
-            style: TextStyle(
-                fontSize: 12,
-                color: selected
-                    ? const Color(0xFF072218)
-                    : const Color(0xFFD6DEE9),
-                fontWeight: FontWeight.w700)),
-        backgroundColor: const Color(0xFF121B29).withValues(alpha: 0.85),
-        selectedColor: const Color(0xFF65D7A5),
-        side: BorderSide(
-            color: selected
-                ? Colors.transparent
-                : Colors.white.withValues(alpha: 0.10)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      );
-}
-
-class _LivePill extends StatelessWidget {
-  const _LivePill();
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-        decoration: BoxDecoration(
-            color: const Color(0xFF101923).withValues(alpha: 0.83),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.10))),
-        child: const Row(mainAxisSize: MainAxisSize.min, children: [
-          _PulseDot(),
-          SizedBox(width: 6),
-          Text('LIVE',
-              style: TextStyle(
-                  fontSize: 10,
-                  color: Color(0xFF91EFC0),
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.6)),
-        ]),
-      );
-}
-
-class _PulseDot extends StatelessWidget {
-  const _PulseDot();
-  @override
-  Widget build(BuildContext context) => Container(
-      width: 7,
-      height: 7,
-      decoration: const BoxDecoration(
-          color: Color(0xFF69D89F), shape: BoxShape.circle));
-}
-
-class _ResultsHeading extends StatelessWidget {
-  final int count;
-  const _ResultsHeading({required this.count});
-  @override
-  Widget build(BuildContext context) => Row(children: [
-        Expanded(
-            child: Text('$count charging point${count == 1 ? '' : 's'}',
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w800))),
-        const Text('Tap card for details & direct charging',
-            style: TextStyle(fontSize: 10, color: Color(0xFF9CA9BA))),
-      ]);
-}
-
-class _StationSearchCard extends StatelessWidget {
-  final Station station;
-  final VoidCallback onTap;
-  const _StationSearchCard({required this.station, required this.onTap});
+  void _showStationPreview(StationModel station) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => StationPreviewSheet(
+        station: station,
+        onDetailsTap: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => StationDetailsScreen(stationId: station.id, initialStation: station)),
+          );
+        },
+        onBookTap: () {
+          Navigator.pop(context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => BookingScreen(station: station)),
+          );
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final reliability = StationReliability.fromStation(station);
-    final power = station.connectors.fold<double>(
-        0,
-        (best, connector) =>
-            connector.maxPowerKw > best ? connector.maxPowerKw : best);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(23),
-        child: Ink(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: const Color(0xFF121B29).withValues(alpha: 0.94),
-            borderRadius: BorderRadius.circular(23),
-            border:
-                Border.all(color: reliability.color.withValues(alpha: 0.18)),
-            boxShadow: [
-              BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.20),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8))
-            ],
-          ),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Container(
-                  width: 42,
-                  height: 42,
-                  decoration: BoxDecoration(
-                      color: const Color(0xFF65D7A5).withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(14)),
-                  child: const Icon(FluentIcons.flash_24_regular,
-                      color: Color(0xFF83EAB3))),
-              const SizedBox(width: 10),
-              Expanded(
+    final filtered = _filteredStations;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: RefreshIndicator(
+        onRefresh: _loadStations,
+        color: AppColors.emerald,
+        child: CustomScrollView(
+          slivers: [
+            // Search Bar & Filters Header
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Search Input
+                    TextField(
+                      controller: _searchController,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search stations, cities, or highways...',
+                        prefixIcon: const Icon(FluentIcons.search_24_regular, size: 20),
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(FluentIcons.dismiss_24_regular, size: 18),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() {});
+                                },
+                              )
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // City Pills
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: _cities.map((city) {
+                          final selected = _selectedCity == city;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(city),
+                              selected: selected,
+                              onSelected: (_) {
+                                setState(() => _selectedCity = city);
+                                _loadStations();
+                              },
+                              selectedColor: AppColors.emerald,
+                              backgroundColor: AppColors.surface,
+                              labelStyle: TextStyle(
+                                color: selected ? Colors.black : AppColors.textSecondary,
+                                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              side: BorderSide(color: selected ? AppColors.emerald : AppColors.borderSubtle),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Feature Filter Chips
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: _filters.map((filter) {
+                          final selected = _selectedFilter == filter;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              label: Text(filter),
+                              selected: selected,
+                              onSelected: (_) => setState(() => _selectedFilter = filter),
+                              selectedColor: AppColors.surfaceElevated,
+                              backgroundColor: AppColors.surface,
+                              checkmarkColor: AppColors.emerald,
+                              labelStyle: TextStyle(
+                                color: selected ? AppColors.emerald : AppColors.textSecondary,
+                                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                                fontSize: 11,
+                              ),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                              side: BorderSide(color: selected ? AppColors.emerald : AppColors.borderSubtle),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // Station Cards List
+            if (_isLoading)
+              const SliverFillRemaining(
+                child: Center(
+                  child: CircularProgressIndicator(color: AppColors.emerald),
+                ),
+              )
+            else if (filtered.isEmpty)
+              SliverFillRemaining(
+                child: Center(
                   child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Text(station.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 16, fontWeight: FontWeight.w800)),
-                    const SizedBox(height: 3),
-                    Text('${station.address}, ${station.city}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 11, color: Color(0xFF9DA9B9))),
-                  ])),
-              const Icon(FluentIcons.chevron_right_24_regular,
-                  color: Color(0xFF9EACBD), size: 19),
-            ]),
-            const SizedBox(height: 12),
-            ReliabilitySmile(station: station, compact: true),
-            const SizedBox(height: 9),
-            _ChargerStatusBand(station: station),
-            const SizedBox(height: 11),
-            Row(children: [
-              _DetailChip(
-                  icon: FluentIcons.plug_connected_20_regular,
-                  label: '${station.availableConnectors} open',
-                  color: reliability.color),
-              const SizedBox(width: 8),
-              _DetailChip(
-                  icon: FluentIcons.flash_20_regular,
-                  label: power > 0
-                      ? '${power.toStringAsFixed(0)} kW max'
-                      : 'Power pending',
-                  color: const Color(0xFF9DD5FF)),
-              const Spacer(),
-              Flexible(
-                  child: Text(
-                      station.isMock ? 'CPO live feed' : station.operatorName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          fontSize: 10, color: Color(0xFF8C99AB)))),
-            ]),
-          ]),
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(FluentIcons.vehicle_car_profile_24_regular, size: 48, color: AppColors.textTertiary),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'No stations found matching filters',
+                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _selectedCity = 'All';
+                            _selectedFilter = 'All';
+                            _searchController.clear();
+                          });
+                          _loadStations();
+                        },
+                        child: const Text('Reset Filters'),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                sliver: SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, idx) {
+                      final station = filtered[idx];
+                      final isAvail = station.availableConnectors > 0;
+
+                      return GlassContainer(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        onTap: () => _showStationPreview(station),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Card Top: Name & Rating
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        station.name,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.02,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '${station.city} · ${station.operator?.name ?? 'CPO Network'}',
+                                        style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.amber.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(FluentIcons.star_24_filled, color: AppColors.amber, size: 12),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        station.rating.toStringAsFixed(1),
+                                        style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.amber, fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Connectors Strip
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: isAvail ? AppColors.emerald.withOpacity(0.15) : AppColors.crimson.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: isAvail ? AppColors.emerald.withOpacity(0.3) : AppColors.crimson.withOpacity(0.3)),
+                                  ),
+                                  child: Text(
+                                    isAvail ? '● ${station.availableConnectors}/${station.connectors.length} Available' : '🔴 All Bays Occupied',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: isAvail ? AppColors.emerald : AppColors.crimson,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.surfaceElevated,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    '⚡ Up to ${station.maxPowerKw} kW',
+                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.sky),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+
+                            // Bottom Strip: Pricing & Reserve Button
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '₹${station.baseTariffPerKwh}/kWh',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.emerald,
+                                  ),
+                                ),
+                                ElevatedButton(
+                                  onPressed: () => Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => BookingScreen(station: station)),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                    minimumSize: const Size(0, 36),
+                                  ),
+                                  child: const Text('Book Slot', style: TextStyle(fontSize: 13)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    childCount: filtered.length,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
   }
-}
-
-class _ChargerStatusBand extends StatelessWidget {
-  final Station station;
-  const _ChargerStatusBand({required this.station});
-
-  @override
-  Widget build(BuildContext context) {
-    final state = station.chargerStatus == 'UNKNOWN'
-        ? (station.availableConnectors > 0 ? 'FREE' : 'BUSY')
-        : station.chargerStatus;
-    final color = switch (state.toUpperCase()) {
-      'FREE' || 'AVAILABLE' => const Color(0xFF65D7A5),
-      'BOOKED' || 'QUEUED' => const Color(0xFF88C9FF),
-      'EMERGENCY' => const Color(0xFFFF8F8A),
-      'CHARGING' => const Color(0xFFFFB15C),
-      _ => const Color(0xFF94A0B1),
-    };
-    final free =
-        station.chargerSummary['available'] ?? station.availableConnectors;
-    final booked = station.chargerSummary['booked'] ?? 0;
-    final charging = station.chargerSummary['charging'] ?? 0;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-          color: color.withValues(alpha: .10),
-          borderRadius: BorderRadius.circular(13),
-          border: Border.all(color: color.withValues(alpha: .18))),
-      child: Row(children: [
-        Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 8),
-        Expanded(
-            child: Text(
-                '$state • $free free • $booked booked • $charging charging',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: color, fontSize: 10, fontWeight: FontWeight.w800))),
-        Text(
-            station.nextAvailableMins == 0
-                ? 'now'
-                : '${station.nextAvailableMins}m',
-            style: const TextStyle(color: Color(0xFF9AA8BA), fontSize: 10))
-      ]),
-    );
-  }
-}
-
-class _DetailChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  const _DetailChip(
-      {required this.icon, required this.label, required this.color});
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.09),
-            borderRadius: BorderRadius.circular(10)),
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, size: 13, color: color),
-          const SizedBox(width: 4),
-          Text(label,
-              style: TextStyle(
-                  fontSize: 10, color: color, fontWeight: FontWeight.w700))
-        ]),
-      );
-}
-
-class _EmptyState extends StatelessWidget {
-  final bool hasError;
-  final VoidCallback onClear;
-  const _EmptyState({required this.hasError, required this.onClear});
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(28),
-        decoration: BoxDecoration(
-            color: const Color(0xFF121B29).withValues(alpha: 0.92),
-            borderRadius: BorderRadius.circular(24)),
-        child: Column(children: [
-          Icon(
-              hasError
-                  ? FluentIcons.warning_24_regular
-                  : FluentIcons.search_info_24_regular,
-              size: 34,
-              color:
-                  hasError ? const Color(0xFFFF9B87) : const Color(0xFF94A4B9)),
-          const SizedBox(height: 10),
-          Text(
-              hasError
-                  ? 'Unable to connect to charging network'
-                  : 'No stations match those filters',
-              style: const TextStyle(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 5),
-          Text(
-              hasError
-                  ? 'Please check your internet connection or server status and retry.'
-                  : 'Try a different city or widen your availability filters.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Color(0xFF9AA8BA), fontSize: 12)),
-          const SizedBox(height: 12),
-          TextButton(
-              onPressed: onClear,
-              child: Text(hasError ? 'Retry loading' : 'Clear filters')),
-        ]),
-      );
-}
-
-class _DiscoveryLoading extends StatelessWidget {
-  const _DiscoveryLoading();
-  @override
-  Widget build(BuildContext context) => const Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-        CircularProgressIndicator(color: Color(0xFF65D7A5)),
-        SizedBox(height: 16),
-        Text('Loading live charging points...',
-            style: TextStyle(color: Color(0xFFB7C1CE)))
-      ]));
 }

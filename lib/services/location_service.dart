@@ -1,106 +1,36 @@
-import 'dart:math' as math;
-
 import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart' as latlng;
 
-import '../models/station.dart';
-
-class AppLocation {
-  final double lat;
-  final double lng;
-  final double? accuracyMeters;
-
-  const AppLocation({
-    required this.lat,
-    required this.lng,
-    this.accuracyMeters,
-  });
-
-  latlng.LatLng get point => latlng.LatLng(lat, lng);
-
-  double distanceKmTo(Station station) => const latlng.Distance().as(
-        latlng.LengthUnit.Kilometer,
-        point,
-        latlng.LatLng(station.lat, station.lng),
-      );
-}
-
-class TravelEstimate {
-  final double distanceKm;
-  final int etaMinutes;
-  final String provider;
-  final bool isEstimated;
-
-  const TravelEstimate({
-    required this.distanceKm,
-    required this.etaMinutes,
-    required this.provider,
-    required this.isEstimated,
-  });
-
-  factory TravelEstimate.fallback(AppLocation origin, Station station) {
-    final straightLineKm = origin.distanceKmTo(station);
-    final roadDistanceKm = straightLineKm * (straightLineKm < 3 ? 1.18 : 1.27);
-    final averageSpeedKph = roadDistanceKm < 8
-        ? 24.0
-        : roadDistanceKm < 35
-            ? 36.0
-            : 52.0;
-    final minutes =
-        math.max(2, ((roadDistanceKm / averageSpeedKph) * 60).ceil());
-    return TravelEstimate(
-      distanceKm: roadDistanceKm,
-      etaMinutes: minutes,
-      provider: 'Estimated',
-      isEstimated: true,
-    );
-  }
-}
-
+/// Geolocation service handling device GPS with fallback coordinates for major Indian cities
 class LocationService {
-  static const defaultLocation = AppLocation(
-    lat: 12.9716,
-    lng: 77.5946,
-    accuracyMeters: 10,
-  );
+  // Default coordinates (Bengaluru tech hub center)
+  static const double defaultLat = 12.9716;
+  static const double defaultLng = 77.5946;
 
-  static AppLocation? lastKnown;
+  static Future<Position?> getCurrentPosition() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return null;
 
-  static Future<AppLocation> determineCurrentLocation() async {
-    if (!await Geolocator.isLocationServiceEnabled()) {
-      throw const LocationServiceException(
-          'Turn on location services to see charging points near you.');
-    }
-    var permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      throw const LocationServiceException(
-          'Location permission is needed to find nearby charging points.');
-    }
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return null;
+      }
 
-    final position = await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: 15),
-      ),
-    );
-    final location = AppLocation(
-      lat: position.latitude,
-      lng: position.longitude,
-      accuracyMeters: position.accuracy,
-    );
-    lastKnown = location;
-    return location;
+      if (permission == LocationPermission.deniedForever) return null;
+
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 5),
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
   }
-}
 
-class LocationServiceException implements Exception {
-  final String message;
-  const LocationServiceException(this.message);
-
-  @override
-  String toString() => message;
+  static double calculateDistance(double startLat, double startLng, double endLat, double endLng) {
+    return Geolocator.distanceBetween(startLat, startLng, endLat, endLng) / 1000; // in km
+  }
 }
