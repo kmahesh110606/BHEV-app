@@ -293,7 +293,7 @@ class _KioskScreenState extends State<KioskScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Battery State of Charge (SoC)', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                        Text('${_liveSoc.toStringAsFixed(1)}% · Pack ${_batteryTemp}°C',
+                        Text('${_liveSoc.toStringAsFixed(1)}% · Pack $_batteryTemp°C',
                             style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.sky)),
                       ],
                     ),
@@ -312,7 +312,7 @@ class _KioskScreenState extends State<KioskScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        _dialTile('Power Output', '${_livePowerKw} kW'),
+                        _dialTile('Power Output', '$_livePowerKw kW'),
                         _dialTile('Energy Delivered', '${(_cumulativeEnergyWh / 1000).toStringAsFixed(2)} kWh'),
                         _dialTile('Bus Voltage', '400 V (146A)'),
                       ],
@@ -369,7 +369,14 @@ class _KioskScreenState extends State<KioskScreen> {
                       }
                     },
                   ),
-                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Cable Lock: ${_isCablePlugged ? "ENGAGED" : "UNLOCKED"}', style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+                      Text('Telemetry: ${_isStreaming ? "STREAMING" : "STANDBY"}', style: const TextStyle(fontSize: 11, color: AppColors.textTertiary)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
 
                   if (!isCharging)
                     SizedBox(

@@ -4,8 +4,6 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../../services/operator_service.dart';
 import '../../models/operator_models.dart';
 import '../../models/station_model.dart';
-import '../../models/booking_model.dart';
-import '../../models/session_model.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/glass_container.dart';
 import '../../widgets/dynamic_qr_view.dart';
@@ -489,7 +487,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> with SingleTick
                               color: (isEmerg ? AppColors.crimson : AppColors.sky).withOpacity(0.15),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: Icon(isEmerg ? FluentIcons.shield_alert_24_filled : FluentIcons.calendar_24_filled,
+                            child: Icon(isEmerg ? FluentIcons.warning_24_filled : FluentIcons.calendar_24_filled,
                                 color: isEmerg ? AppColors.crimson : AppColors.sky, size: 18),
                           ),
                           const SizedBox(width: 12),

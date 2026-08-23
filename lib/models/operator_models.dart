@@ -1,4 +1,5 @@
 /// Complete Data Models for the 13 URJAA CPO Operator Modules
+library;
 
 class OperatorKpis {
   final double totalRevenue;

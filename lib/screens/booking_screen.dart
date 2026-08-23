@@ -4,7 +4,6 @@ import '../services/api_service.dart';
 import '../models/station_model.dart';
 import '../theme/app_colors.dart';
 import '../widgets/glass_container.dart';
-import 'sessions_screen.dart';
 
 /// Slot Booking Screen for atomic reservation on the open UEI network
 class BookingScreen extends StatefulWidget {
@@ -237,8 +236,8 @@ class _BookingScreenState extends State<BookingScreen> {
                 children: [
                   const Row(
                     children: [
-                      Icon(FluentIcons.shield_alert_24_filled, color: AppColors.crimson, size: 20),
-                      const SizedBox(width: 10),
+                      Icon(FluentIcons.warning_24_filled, color: AppColors.crimson, size: 20),
+                      SizedBox(width: 10),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
