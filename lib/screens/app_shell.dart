@@ -226,12 +226,6 @@ class _ModuleGrid extends StatelessWidget {
               description: 'Map, filters & live availability',
               onTap: () => onNavigate(1)),
           _ModuleTile(
-              icon: FluentIcons.directions_24_regular,
-              color: const Color(0xFF65D7A5),
-              title: 'Trip Planner',
-              description: 'Highway corridors & closest stops',
-              onTap: () => Navigator.pushNamed(context, '/trip-planner')),
-          _ModuleTile(
               icon: FluentIcons.calendar_ltr_24_regular,
               color: const Color(0xFF88C9FF),
               title: 'Reservations',

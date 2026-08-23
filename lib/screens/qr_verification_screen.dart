@@ -6,7 +6,8 @@ import '../main.dart';
 import '../services/api_service.dart';
 
 class QrVerificationScreen extends StatefulWidget {
-  const QrVerificationScreen({super.key});
+  final String? bookingId;
+  const QrVerificationScreen({super.key, this.bookingId});
 
   @override
   State<QrVerificationScreen> createState() => _QrVerificationScreenState();
@@ -43,7 +44,8 @@ class _QrVerificationScreenState extends State<QrVerificationScreen> {
     });
     await _controller.stop();
     try {
-      final result = await _api.verifyArrival(token.trim());
+      final result =
+          await _api.verifyArrival(token.trim(), bookingId: widget.bookingId);
       if (mounted) setState(() => _verified = result);
     } catch (error) {
       if (mounted) {
@@ -121,7 +123,8 @@ class _QrVerificationScreenState extends State<QrVerificationScreen> {
                 decoration: BoxDecoration(
                   color: const Color(0xFF121B29).withValues(alpha: .94),
                   borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: Colors.white.withValues(alpha: .08)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: .08)),
                 ),
                 child: _verified == null
                     ? _ScannerInstructions(
@@ -158,14 +161,14 @@ class _ScannerInstructions extends StatelessWidget {
             Expanded(
                 child: Text(
               verifying ? 'Verifying kiosk token...' : 'Scan the kiosk QR',
-              style:
-                  const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
             )),
           ]),
           const SizedBox(height: 8),
           const Text(
             'Point the camera at the rotating QR shown on the charging kiosk. The app verifies the signed token before charging starts.',
-            style: TextStyle(color: Color(0xFFC0CAD8), fontSize: 12, height: 1.4),
+            style:
+                TextStyle(color: Color(0xFFC0CAD8), fontSize: 12, height: 1.4),
           ),
           if (error != null) ...[
             const SizedBox(height: 10),
@@ -194,7 +197,10 @@ class _VerifiedPanelState extends State<_VerifiedPanel> {
     try {
       final stnId = widget.result['stationId']?.toString() ?? '';
       final connId = widget.result['connectorId']?.toString() ?? '';
-      if (stnId.isNotEmpty && connId.isNotEmpty) {
+      final bookingId = widget.result['bookingId']?.toString();
+      if (bookingId != null && bookingId.isNotEmpty) {
+        await _api.startBookingSession(bookingId, initialSoc: 25);
+      } else if (stnId.isNotEmpty && connId.isNotEmpty) {
         await _api.startSession(
           stationId: stnId,
           connectorId: connId,
@@ -205,7 +211,8 @@ class _VerifiedPanelState extends State<_VerifiedPanel> {
       Navigator.pushReplacementNamed(context, '/sessions');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
         setState(() => _starting = false);
       }
     }
@@ -224,7 +231,8 @@ class _VerifiedPanelState extends State<_VerifiedPanel> {
           Text(
             'Station: ${widget.result['stationId'] ?? 'Verified'}\nConnector: ${widget.result['connectorId'] ?? 'Plug Connected'}',
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0xFFB7C4D2), fontSize: 12, height: 1.4),
+            style: const TextStyle(
+                color: Color(0xFFB7C4D2), fontSize: 12, height: 1.4),
           ),
           const SizedBox(height: 16),
           SizedBox(
@@ -240,19 +248,23 @@ class _VerifiedPanelState extends State<_VerifiedPanel> {
                   ? const SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF0B0F17)),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Color(0xFF0B0F17)),
                     )
                   : const Icon(FluentIcons.flash_24_filled, size: 20),
               label: Text(
                 _starting ? 'Initiating Charger...' : 'Start Charging Session',
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                style:
+                    const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
               ),
             ),
           ),
           const SizedBox(height: 8),
           TextButton(
-            onPressed: () => Navigator.pushReplacementNamed(context, '/sessions'),
-            child: const Text('View Active Sessions', style: TextStyle(color: Color(0xFF8B9CB2), fontSize: 12)),
+            onPressed: () =>
+                Navigator.pushReplacementNamed(context, '/sessions'),
+            child: const Text('View Active Sessions',
+                style: TextStyle(color: Color(0xFF8B9CB2), fontSize: 12)),
           ),
         ],
       );

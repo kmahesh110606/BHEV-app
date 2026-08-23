@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as latlng;
 
 import '../models/station.dart';
@@ -45,7 +46,8 @@ class TravelEstimate {
         : roadDistanceKm < 35
             ? 36.0
             : 52.0;
-    final minutes = math.max(2, ((roadDistanceKm / averageSpeedKph) * 60).ceil());
+    final minutes =
+        math.max(2, ((roadDistanceKm / averageSpeedKph) * 60).ceil());
     return TravelEstimate(
       distanceKm: roadDistanceKm,
       etaMinutes: minutes,
@@ -65,7 +67,33 @@ class LocationService {
   static AppLocation? lastKnown;
 
   static Future<AppLocation> determineCurrentLocation() async {
-    return lastKnown ?? defaultLocation;
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      throw const LocationServiceException(
+          'Turn on location services to see charging points near you.');
+    }
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw const LocationServiceException(
+          'Location permission is needed to find nearby charging points.');
+    }
+
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        timeLimit: Duration(seconds: 15),
+      ),
+    );
+    final location = AppLocation(
+      lat: position.latitude,
+      lng: position.longitude,
+      accuracyMeters: position.accuracy,
+    );
+    lastKnown = location;
+    return location;
   }
 }
 
@@ -76,4 +104,3 @@ class LocationServiceException implements Exception {
   @override
   String toString() => message;
 }
-

@@ -4,6 +4,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../main.dart';
 import '../models/station.dart';
 import '../services/api_service.dart';
+import '../services/location_service.dart';
 import '../widgets/glass_container.dart';
 import '../widgets/reliability_smile.dart';
 import '../widgets/station_preview_sheet.dart';
@@ -22,11 +23,13 @@ class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   bool _availableOnly = false;
   bool _fastChargeOnly = false;
+  AppLocation? _location;
+  String? _locationNotice;
 
   @override
   void initState() {
     super.initState();
-    _stations = apiService.fetchStations();
+    _stations = _loadNearbyStations();
   }
 
   @override
@@ -36,13 +39,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _reload() async {
-    setState(() => _stations = apiService.fetchStations());
+    setState(() => _stations = _loadNearbyStations());
     await _stations;
+  }
+
+  Future<List<Station>> _loadNearbyStations() async {
+    try {
+      final location = await LocationService.determineCurrentLocation();
+      if (mounted)
+        setState(() {
+          _location = location;
+          _locationNotice = null;
+        });
+      return apiService.fetchStations(
+        latitude: location.lat,
+        longitude: location.lng,
+        radiusKm: 75,
+      );
+    } on LocationServiceException catch (error) {
+      if (mounted) setState(() => _locationNotice = error.message);
+      return apiService.fetchStations();
+    }
   }
 
   List<Station> _filterStations(List<Station> stations) {
     final query = _searchController.text.trim().toLowerCase();
-    return stations.where((station) {
+    final filtered = stations.where((station) {
       final haystack =
           '${station.name} ${station.address} ${station.city} ${station.operatorName}'
               .toLowerCase();
@@ -52,6 +74,11 @@ class _HomeScreenState extends State<HomeScreen> {
           (!_availableOnly || station.availableConnectors > 0) &&
           (!_fastChargeOnly || fastCharge);
     }).toList();
+    if (_location != null) {
+      filtered.sort((a, b) =>
+          _location!.distanceKmTo(a).compareTo(_location!.distanceKmTo(b)));
+    }
+    return filtered;
   }
 
   void _showPreview(Station station) => showModalBottomSheet<void>(
@@ -83,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         MapplsStationMap(
                           stations: stations,
                           onStationTap: _showPreview,
+                          originPoint: _location?.point,
                         ),
                         Positioned.fill(
                           child: DecoratedBox(
@@ -108,7 +136,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-                        child: _DiscoveryHeader(onRefresh: _reload),
+                        child: _DiscoveryHeader(
+                          onRefresh: _reload,
+                          locationNotice: _locationNotice,
+                          hasLocation: _location != null,
+                        ),
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -178,7 +210,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _DiscoveryHeader extends StatelessWidget {
   final VoidCallback onRefresh;
-  const _DiscoveryHeader({required this.onRefresh});
+  final bool hasLocation;
+  final String? locationNotice;
+  const _DiscoveryHeader({
+    required this.onRefresh,
+    required this.hasLocation,
+    this.locationNotice,
+  });
 
   @override
   Widget build(BuildContext context) => Row(
@@ -195,14 +233,19 @@ class _DiscoveryHeader extends StatelessWidget {
                 color: Color(0xFF83EAB3), size: 21),
           ),
           const SizedBox(width: 10),
-          const Expanded(
+          Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('CHARGEGRID',
+              const Text('CHARGEGRID',
                   style: TextStyle(
                       fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-              Text('DISCOVER • LIVE OPERATOR FEEDS',
-                  style: TextStyle(
+              Text(
+                  hasLocation
+                      ? 'NEARBY CHARGING POINTS • LIVE NETWORK'
+                      : locationNotice ?? 'DISCOVER • LIVE NETWORK',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
                       color: Color(0xFF91A0B4),
                       fontSize: 9,
                       fontWeight: FontWeight.w700,
@@ -267,14 +310,6 @@ class _DiscoveryFilters extends StatelessWidget {
   Widget build(BuildContext context) => SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(children: [
-          ActionChip(
-            avatar: const Icon(FluentIcons.directions_24_filled, size: 16, color: Color(0xFF0B0F17)),
-            label: const Text('Plan Route', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF0B0F17))),
-            backgroundColor: const Color(0xFF65D7A5),
-            side: BorderSide.none,
-            onPressed: () => Navigator.pushNamed(context, '/trip-planner'),
-          ),
-          const SizedBox(width: 8),
           _FilterPill(
               label: 'Available now',
               icon: FluentIcons.checkmark_circle_16_filled,
@@ -367,8 +402,7 @@ class _ResultsHeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(children: [
         Expanded(
-            child: Text(
-                '$count charging point${count == 1 ? '' : 's'}',
+            child: Text('$count charging point${count == 1 ? '' : 's'}',
                 style: const TextStyle(
                     fontSize: 16, fontWeight: FontWeight.w800))),
         const Text('Tap card for details & direct charging',
@@ -487,8 +521,8 @@ class _ChargerStatusBand extends StatelessWidget {
       'CHARGING' => const Color(0xFFFFB15C),
       _ => const Color(0xFF94A0B1),
     };
-    final free = station.chargerSummary['available'] ??
-        station.availableConnectors;
+    final free =
+        station.chargerSummary['available'] ?? station.availableConnectors;
     final booked = station.chargerSummary['booked'] ?? 0;
     final charging = station.chargerSummary['charging'] ?? 0;
     return Container(
@@ -504,7 +538,8 @@ class _ChargerStatusBand extends StatelessWidget {
             decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         const SizedBox(width: 8),
         Expanded(
-            child: Text('$state • $free free • $booked booked • $charging charging',
+            child: Text(
+                '$state • $free free • $booked booked • $charging charging',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -558,7 +593,8 @@ class _EmptyState extends StatelessWidget {
                   ? FluentIcons.warning_24_regular
                   : FluentIcons.search_info_24_regular,
               size: 34,
-              color: hasError ? const Color(0xFFFF9B87) : const Color(0xFF94A4B9)),
+              color:
+                  hasError ? const Color(0xFFFF9B87) : const Color(0xFF94A4B9)),
           const SizedBox(height: 10),
           Text(
               hasError

@@ -51,17 +51,27 @@ class ApiService {
     return decoded;
   }
 
-  Future<List<Station>> fetchStations(
-      {String? query, String? connector}) async {
+  Future<List<Station>> fetchStations({
+    String? query,
+    String? connector,
+    double? latitude,
+    double? longitude,
+    double? radiusKm,
+  }) async {
     final params = <String, String>{
       if (query?.isNotEmpty == true) 'q': query!,
       if (connector?.isNotEmpty == true) 'connector': connector!,
-      'limit': '700',
+      if (latitude != null) 'lat': latitude.toString(),
+      if (longitude != null) 'lng': longitude.toString(),
+      if (radiusKm != null) 'radius': radiusKm.toString(),
+      'limit': '500',
     };
-    var res = await http.get(
-        Uri.parse('$baseUrl/api/v1/stations').replace(queryParameters: params));
+    // National discovery merges the public registry and connected operator
+    // network. `/stations` can legitimately be empty for a new deployment.
+    var res = await http.get(Uri.parse('$baseUrl/api/v1/stations/national')
+        .replace(queryParameters: params));
     if (res.statusCode != 200) {
-      res = await http.get(Uri.parse('$baseUrl/api/v1/stations/national')
+      res = await http.get(Uri.parse('$baseUrl/api/v1/stations')
           .replace(queryParameters: params));
     }
     if (res.statusCode != 200) {
@@ -155,6 +165,12 @@ class ApiService {
       {double initialSoc = 32}) async {
     final json = await _request('/api/v1/bookings/$bookingId/start-charging',
         method: 'POST', authenticated: true, body: {'initialSoc': initialSoc});
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  Future<Map<String, dynamic>> cancelBooking(String bookingId) async {
+    final json = await _request('/api/v1/bookings/$bookingId/cancel',
+        method: 'POST', authenticated: true);
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 

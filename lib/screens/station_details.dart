@@ -178,8 +178,8 @@ class _MockEvStatusCardState extends State<_MockEvStatusCard> {
                     _status == null
                         ? 'Connect your EV profile to show SoC, range and battery temperature.'
                         : '${_status!['socPercent']}% SoC • ${_status!['rangeKm']} km range • ${_status!['batteryTempC']}°C',
-                    style: const TextStyle(
-                        color: Color(0xFF9AA8BA), fontSize: 11))
+                    style:
+                        const TextStyle(color: Color(0xFF9AA8BA), fontSize: 11))
               ])),
           TextButton(
               onPressed: _connecting ? null : _connect,
@@ -395,7 +395,8 @@ class _ConnectorCard extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
               icon: const Icon(FluentIcons.flash_24_filled, size: 18),
-              label: const Text('Start Charging Session', style: TextStyle(fontWeight: FontWeight.w800)),
+              label: const Text('Start Charging Session',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
             ),
           ),
           const SizedBox(height: 8),
@@ -441,7 +442,8 @@ class _ConnectorCard extends StatelessWidget {
       );
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
       }
     }
   }
@@ -484,9 +486,7 @@ class _StatusTag extends StatelessWidget {
                 ? connector.status
                 : connector.visualState,
             style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-                color: color)),
+                fontSize: 9, fontWeight: FontWeight.w800, color: color)),
       );
 }
 
@@ -550,24 +550,6 @@ class BookingResultScreen extends StatefulWidget {
 }
 
 class _BookingResultScreenState extends State<BookingResultScreen> {
-  bool _starting = false;
-  Map<String, dynamic>? _session;
-
-  Future<void> _startCharging() async {
-    setState(() => _starting = true);
-    try {
-      final session =
-          await api.startBookingSession('${widget.booking['id']}');
-      if (mounted) setState(() => _session = session);
-    } catch (error) {
-      if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$error')));
-    } finally {
-      if (mounted) setState(() => _starting = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Reservation confirmed')),
@@ -595,7 +577,8 @@ class _BookingResultScreenState extends State<BookingResultScreen> {
                     style:
                         TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 8),
-                Text('Reference: ${widget.booking['externalRef'] ?? widget.booking['bookingRef'] ?? widget.booking['id']}',
+                Text(
+                    'Reference: ${widget.booking['externalRef'] ?? widget.booking['bookingRef'] ?? widget.booking['id']}',
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Color(0xFFB7C3D4))),
                 const SizedBox(height: 8),
@@ -618,44 +601,14 @@ class _BookingResultScreenState extends State<BookingResultScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         color: Color(0xFFCFD7E3), fontSize: 12, height: 1.45)),
-                if (_session != null) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: .05),
-                          borderRadius: BorderRadius.circular(16)),
-                      child: Column(children: [
-                        const Text('Mock charging started',
-                            style: TextStyle(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 5),
-                        Text(
-                            '${_session!['carName'] ?? _session!['vehicleName']} • ${_session!['socPercent']}% SoC • ₹${_session!['liveCost']}',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                color: Color(0xFFB7C3D4), fontSize: 12)),
-                      ])),
-                ],
                 const SizedBox(height: 18),
-                SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                        onPressed:
-                            _session == null && !_starting ? _startCharging : null,
-                        icon: const Icon(FluentIcons.flash_24_regular),
-                        label: Text(_starting
-                            ? 'Starting...'
-                            : _session == null
-                                ? 'Start mock charging'
-                                : 'Charging active'))),
-                const SizedBox(height: 8),
                 SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                         onPressed: () =>
                             Navigator.pushNamed(context, '/scan-kiosk'),
                         icon: const Icon(FluentIcons.qr_code_24_regular),
-                        label: const Text('Scan kiosk QR with camera'))),
+                        label: const Text('Scan kiosk QR to start charging'))),
                 const SizedBox(height: 8),
                 SizedBox(
                     width: double.infinity,

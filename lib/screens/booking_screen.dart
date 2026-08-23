@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import 'qr_verification_screen.dart';
 
 class BookingScreen extends StatefulWidget {
   const BookingScreen({super.key});
@@ -30,12 +31,29 @@ class _BookingScreenState extends State<BookingScreen> {
       _error = null;
     });
     try {
-      final list = await _api.myBookings(driverEmail: AuthService.currentUser?['email']);
+      final list =
+          await _api.myBookings(driverEmail: AuthService.currentUser?['email']);
       if (mounted) setState(() => _bookings = list);
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _cancelBooking(String id) async {
+    try {
+      await _api.cancelBooking(id);
+      await _loadBookings();
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Booking cancelled.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
     }
   }
 
@@ -77,7 +95,9 @@ class _BookingScreenState extends State<BookingScreen> {
                 ? FluentIcons.error_circle_24_regular
                 : FluentIcons.calendar_clock_24_regular,
             size: 64,
-            color: _error != null ? const Color(0xFFEF4444) : const Color(0xFF65D7A5),
+            color: _error != null
+                ? const Color(0xFFEF4444)
+                : const Color(0xFF65D7A5),
           ),
           const SizedBox(height: 16),
           Text(
@@ -163,7 +183,7 @@ class _BookingScreenState extends State<BookingScreen> {
                         ),
                       ),
                       Text(
-                        b['bookingRef'] ?? b['id'] ?? '',
+                        b['externalRef'] ?? b['bookingRef'] ?? b['id'] ?? '',
                         style: const TextStyle(
                             color: Color(0xFF9BA9BC), fontSize: 12),
                       ),
@@ -178,16 +198,19 @@ class _BookingScreenState extends State<BookingScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'Connector: ${b['connectorStandard'] ?? 'CCS2'} • ${b['vehicleName'] ?? 'EV'}',
-                    style: const TextStyle(
-                        color: Color(0xFF9BA9BC), fontSize: 13),
+                    style:
+                        const TextStyle(color: Color(0xFF9BA9BC), fontSize: 13),
                   ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () =>
-                              Navigator.pushNamed(context, '/scan-kiosk'),
+                          onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => QrVerificationScreen(
+                                      bookingId: b['id']?.toString()))),
                           icon: const Icon(FluentIcons.qr_code_24_regular,
                               size: 18),
                           label: const Text('Scan Kiosk QR'),
@@ -213,6 +236,15 @@ class _BookingScreenState extends State<BookingScreen> {
                       ],
                     ],
                   ),
+                  if (status == 'CONFIRMED' || status == 'QUEUED') ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: () => _cancelBooking(b['id'].toString()),
+                      icon: const Icon(FluentIcons.dismiss_circle_24_regular,
+                          size: 17),
+                      label: const Text('Cancel booking'),
+                    ),
+                  ],
                 ],
               ),
             ),
