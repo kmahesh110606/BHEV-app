@@ -1,11 +1,14 @@
-/// Station, Connector, Tariff and Reliability models for Discovery & Details
+/// Station, Connector, Tariff and Reliability models for Discovery, Details & BEE Registry
 class StationModel {
   final String id;
   final String name;
   final String address;
   final String city;
   final String state;
+  final String? district;
   final String? pincode;
+  final String? ownership; // Govt., Private, Public
+  final String? cpo; // Tata Power, Ather, IOCL, BPCL, etc.
   final double latitude;
   final double longitude;
   final double? distanceKm;
@@ -15,6 +18,9 @@ class StationModel {
   final List<ConnectorModel> connectors;
   final int availableConnectors;
   final List<String> amenities;
+  final List<String> connectorCategories;
+  final List<String> connectorTypes;
+  final List<double> chargerRatings;
 
   StationModel({
     required this.id,
@@ -22,7 +28,10 @@ class StationModel {
     required this.address,
     required this.city,
     required this.state,
+    this.district,
     this.pincode,
+    this.ownership,
+    this.cpo,
     required this.latitude,
     required this.longitude,
     this.distanceKm,
@@ -32,24 +41,73 @@ class StationModel {
     this.connectors = const [],
     this.availableConnectors = 0,
     this.amenities = const ['Cafe', 'Restroom', 'WiFi', '24/7 Security'],
+    this.connectorCategories = const [],
+    this.connectorTypes = const [],
+    this.chargerRatings = const [],
   });
 
-  bool get isFastDc => connectors.any((c) => c.isDc && c.maxPowerKw >= 50);
-  int get maxPowerKw => connectors.fold(0, (max, c) => c.maxPowerKw > max ? c.maxPowerKw.toInt() : max);
+  bool get isFastDc => connectors.any((c) => c.isDc && c.maxPowerKw >= 50) ||
+      chargerRatings.any((r) => r >= 50) ||
+      connectorCategories.any((cat) => cat.toLowerCase().contains('ccs') || cat.toLowerCase().contains('dc'));
+
+  int get maxPowerKw {
+    int maxFromConns = connectors.fold(0, (max, c) => c.maxPowerKw > max ? c.maxPowerKw.toInt() : max);
+    int maxFromRatings = chargerRatings.fold(0, (max, r) => r > max ? r.toInt() : max);
+    return maxFromConns > maxFromRatings ? maxFromConns : (maxFromRatings > 0 ? maxFromRatings : 60);
+  }
+
   double get baseTariffPerKwh => connectors.isNotEmpty ? (connectors.first.tariff?.pricePerKwh ?? 14.5) : 14.5;
   double get connectionFlatFee => connectors.isNotEmpty ? (connectors.first.tariff?.flatFee ?? 20.0) : 20.0;
+  String get displayCpo => cpo ?? operator?.name ?? 'National CPO Network';
+  String get displayOwnership => ownership ?? (operator?.isMock == true ? 'Private' : 'Govt. Verified');
+
+  /// Recommendation rank score (0 - 100)
+  double get recommendationScore {
+    double score = 50.0;
+    if (availableConnectors > 0) score += 25.0;
+    if (isFastDc) score += 15.0;
+    score += (rating - 4.0) * 10.0; // rating boost
+    if (distanceKm != null && distanceKm! > 0) {
+      if (distanceKm! <= 5) score += 10.0;
+      else if (distanceKm! <= 15) score += 5.0;
+    }
+    return score.clamp(0.0, 100.0);
+  }
 
   factory StationModel.fromJson(Map<String, dynamic> json) {
     var rawConnectors = json['connectors'] as List<dynamic>? ?? [];
     List<ConnectorModel> conns = rawConnectors.map((c) => ConnectorModel.fromJson(c as Map<String, dynamic>)).toList();
 
+    var rawCategories = json['connector_categories'] ?? json['connectorCategories'];
+    List<String> categories = rawCategories is List
+        ? rawCategories.map((e) => e.toString()).toList()
+        : [];
+
+    var rawTypes = json['connector_types'] ?? json['connectorTypes'];
+    List<String> types = rawTypes is List
+        ? rawTypes.map((e) => e.toString()).toList()
+        : [];
+
+    var rawRatings = json['charger_ratings_kw'] ?? json['chargerRatings'];
+    List<double> ratings = rawRatings is List
+        ? rawRatings.map((e) => double.tryParse(e.toString()) ?? 0.0).toList()
+        : [];
+
+    final cpoName = json['cpo']?.toString() ?? json['operator']?['name']?.toString() ?? json['operator_name']?.toString();
+    final availCount = json['availableConnectors'] != null
+        ? int.tryParse(json['availableConnectors'].toString()) ?? conns.where((c) => c.status == 'AVAILABLE').length
+        : (conns.isNotEmpty ? conns.where((c) => c.status == 'AVAILABLE').length : 1);
+
     return StationModel(
       id: json['id']?.toString() ?? '',
-      name: (json['name']?.toString() ?? 'EV Charging Hub').replaceAll(RegExp(r'^⚠️\s*\[MOCK\]\s*'), ''),
-      address: json['address']?.toString() ?? 'Main Road',
+      name: (json['name']?.toString() ?? json['station_name']?.toString() ?? 'EV Charging Hub').replaceAll(RegExp(r'^⚠️\s*\[MOCK\]\s*'), ''),
+      address: json['address']?.toString() ?? json['location']?.toString() ?? 'Main Road',
       city: json['city']?.toString() ?? 'Bengaluru',
       state: json['state']?.toString() ?? 'Karnataka',
-      pincode: json['pincode']?.toString(),
+      district: json['district']?.toString(),
+      pincode: json['pincode']?.toString() ?? json['postal_code']?.toString(),
+      ownership: json['ownership']?.toString(),
+      cpo: cpoName,
       latitude: double.tryParse(json['latitude']?.toString() ?? '') ?? 12.9716,
       longitude: double.tryParse(json['longitude']?.toString() ?? '') ?? 77.5946,
       distanceKm: json['distanceKm'] != null ? double.tryParse(json['distanceKm'].toString()) : null,
@@ -57,10 +115,11 @@ class StationModel {
       rating: double.tryParse(json['rating']?.toString() ?? '') ?? 4.8,
       reliability: json['reliability'] != null ? ReliabilityInfo.fromJson(json['reliability'] as Map<String, dynamic>) : null,
       connectors: conns,
-      availableConnectors: json['availableConnectors'] != null
-          ? int.tryParse(json['availableConnectors'].toString()) ?? conns.where((c) => c.status == 'AVAILABLE').length
-          : conns.where((c) => c.status == 'AVAILABLE').length,
+      availableConnectors: availCount,
       amenities: json['amenities'] != null ? List<String>.from(json['amenities']) : ['Cafe', 'Restroom', 'WiFi', '24/7 Security'],
+      connectorCategories: categories,
+      connectorTypes: types,
+      chargerRatings: ratings,
     );
   }
 
@@ -71,7 +130,10 @@ class StationModel {
       'address': address,
       'city': city,
       'state': state,
+      'district': district,
       'pincode': pincode,
+      'ownership': ownership,
+      'cpo': cpo,
       'latitude': latitude,
       'longitude': longitude,
       'distanceKm': distanceKm,
@@ -81,6 +143,9 @@ class StationModel {
       'connectors': connectors.map((c) => c.toJson()).toList(),
       'availableConnectors': availableConnectors,
       'amenities': amenities,
+      'connectorCategories': connectorCategories,
+      'connectorTypes': connectorTypes,
+      'chargerRatings': chargerRatings,
     };
   }
 }

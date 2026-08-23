@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -45,30 +46,54 @@ class _QrVerificationScreenState extends State<QrVerificationScreen> {
     super.dispose();
   }
 
+  String _cleanToken(String raw) {
+    String str = raw.trim();
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+      final uri = Uri.tryParse(str);
+      if (uri != null) {
+        if (uri.queryParameters.containsKey('token')) return uri.queryParameters['token']!;
+        if (uri.queryParameters.containsKey('qr')) return uri.queryParameters['qr']!;
+        if (uri.queryParameters.containsKey('code')) return uri.queryParameters['code']!;
+      }
+    }
+    if (str.startsWith('{') && str.endsWith('}')) {
+      try {
+        final map = jsonDecode(str) as Map<String, dynamic>;
+        if (map['token'] != null) return map['token'].toString();
+        if (map['qr'] != null) return map['qr'].toString();
+        if (map['id'] != null) return map['id'].toString();
+      } catch (_) {}
+    }
+    return str;
+  }
+
   void _onDetect(BarcodeCapture capture) {
     if (_hasScanned || _isVerifying) return;
     final List<Barcode> barcodes = capture.barcodes;
     for (final barcode in barcodes) {
       final rawValue = barcode.rawValue;
       if (rawValue != null && rawValue.isNotEmpty) {
+        final cleaned = _cleanToken(rawValue);
         setState(() {
           _hasScanned = true;
-          _tokenController.text = rawValue;
+          _tokenController.text = cleaned;
         });
-        _handleVerifyToken(rawValue);
+        _handleVerifyToken(cleaned);
         break;
       }
     }
   }
 
   Future<void> _handleVerifyToken([String? overrideToken]) async {
-    final token = (overrideToken ?? _tokenController.text).trim();
-    if (token.isEmpty) {
+    final raw = (overrideToken ?? _tokenController.text).trim();
+    if (raw.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please scan or enter rotating QR security token')),
       );
       return;
     }
+
+    final token = _cleanToken(raw);
 
     setState(() {
       _isVerifying = true;
@@ -125,8 +150,9 @@ class _QrVerificationScreenState extends State<QrVerificationScreen> {
   Future<void> _pasteFromClipboard() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     if (data?.text != null && data!.text!.isNotEmpty) {
-      _tokenController.text = data.text!;
-      _handleVerifyToken(data.text!);
+      final cleaned = _cleanToken(data.text!);
+      _tokenController.text = cleaned;
+      _handleVerifyToken(cleaned);
     }
   }
 

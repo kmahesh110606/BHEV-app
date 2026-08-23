@@ -7,7 +7,7 @@ import '../theme/app_colors.dart';
 import '../widgets/glass_container.dart';
 import 'login_screen.dart';
 
-/// User Profile & Account Screen for EV drivers
+/// User Profile & Account Screen for EV drivers with strict role isolation
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -33,6 +33,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
     final user = auth.currentUser;
+    final isOperator = auth.isOperator;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -47,8 +48,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 children: [
                   CircleAvatar(
                     radius: 28,
-                    backgroundColor: AppColors.emerald.withOpacity(0.2),
-                    child: const Icon(FluentIcons.person_24_filled, color: AppColors.emerald, size: 28),
+                    backgroundColor: (isOperator ? AppColors.sky : AppColors.emerald).withOpacity(0.2),
+                    child: Icon(
+                      isOperator ? FluentIcons.building_24_filled : FluentIcons.person_24_filled,
+                      color: isOperator ? AppColors.sky : AppColors.emerald,
+                      size: 28,
+                    ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -68,12 +73,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppColors.emerald.withOpacity(0.15),
+                            color: (isOperator ? AppColors.sky : AppColors.emerald).withOpacity(0.15),
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Text(
-                            '● VERIFIED DRIVER',
-                            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.emerald),
+                          child: Text(
+                            isOperator ? '● VERIFIED CPO OPERATOR' : '● VERIFIED EV DRIVER',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: isOperator ? AppColors.sky : AppColors.emerald,
+                            ),
                           ),
                         ),
                       ],
@@ -84,27 +93,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 20),
 
-            // Mode & Role Switcher
+            // Account & Protocol Info
             const Text('Account & Preferences', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
             const SizedBox(height: 10),
 
             GlassContainer(
               child: Column(
                 children: [
-                  _settingTile(
-                    icon: FluentIcons.building_24_filled,
-                    title: 'Switch to Station Operator Mode',
-                    subtitle: 'Manage your station fleet, live queue, and CPO revenue',
-                    trailing: TextButton(
-                      onPressed: () => auth.togglePreviewRole(),
-                      child: const Text('Switch', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.sky)),
+                  if (isOperator) ...[
+                    _settingTile(
+                      icon: FluentIcons.building_24_filled,
+                      title: 'CPO Enterprise Console',
+                      subtitle: 'Manage your station fleet, live queue, and CPO revenue',
+                      trailing: const Icon(FluentIcons.chevron_right_24_regular, size: 16, color: AppColors.textTertiary),
                     ),
-                  ),
-                  const Divider(height: 20),
+                    const Divider(height: 20),
+                  ] else ...[
+                    _settingTile(
+                      icon: FluentIcons.building_24_filled,
+                      title: 'Apply for CPO Operator Partnership',
+                      subtitle: 'Register private or commercial EV charging stations on URJAA',
+                      trailing: TextButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('CPO Registration requires business verification & BEE license.'),
+                            ),
+                          );
+                        },
+                        child: const Text('Apply', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.sky, fontSize: 12)),
+                      ),
+                    ),
+                    const Divider(height: 20),
+                  ],
                   _settingTile(
                     icon: FluentIcons.cloud_checkmark_24_filled,
-                    title: 'Offline Station Cache',
-                    subtitle: _syncTime ?? 'Stations cached for offline access',
+                    title: 'Offline Station Dataset',
+                    subtitle: _syncTime ?? 'National BEE & CPO stations cached',
                     trailing: IconButton(
                       icon: const Icon(FluentIcons.arrow_sync_24_regular, size: 18, color: AppColors.emerald),
                       onPressed: _loadCacheStatus,
@@ -114,7 +139,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   _settingTile(
                     icon: FluentIcons.shield_checkmark_24_filled,
                     title: 'BEE UEI National Grid Protocol',
-                    subtitle: 'Connected to India Open Charging Network',
+                    subtitle: 'Connected to India Open Unified Charging Infrastructure',
                     trailing: const Icon(FluentIcons.checkmark_24_filled, color: AppColors.emerald, size: 18),
                   ),
                 ],

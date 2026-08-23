@@ -11,7 +11,7 @@ import 'profile_screen.dart';
 import 'operator/operator_home_screen.dart';
 import 'login_screen.dart';
 
-/// Dynamic App Shell providing bottom navigation and seamless Driver vs Operator role switching
+/// Dynamic App Shell providing bottom navigation and strict role-based access control
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -21,13 +21,15 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int _currentIndex = 0;
+  bool _operatorViewActive = true;
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
-    final isOperator = auth.isOperator;
+    final user = auth.currentUser;
+    final hasCpoRole = auth.isOperator; // true ONLY if role == 'operator' || role == 'admin'
 
-    // Driver Navigation Screens (Kiosk removed per user request)
+    // Driver Navigation Screens (Strictly for Customer/Driver mode)
     final List<Widget> driverScreens = [
       const HomeScreen(),
       const QrVerificationScreen(),
@@ -35,7 +37,7 @@ class _AppShellState extends State<AppShell> {
       const ProfileScreen(),
     ];
 
-    // Operator Navigation Screens
+    // Operator Navigation Screens (Strictly for CPO Operators)
     final List<Widget> operatorScreens = [
       const OperatorHomeScreen(),
       const KioskScreen(),
@@ -43,7 +45,9 @@ class _AppShellState extends State<AppShell> {
       const HomeScreen(),
     ];
 
-    final currentScreens = isOperator ? operatorScreens : driverScreens;
+    // If user is a normal customer, they NEVER get operator mode
+    final isShowingOperator = hasCpoRole && _operatorViewActive;
+    final currentScreens = isShowingOperator ? operatorScreens : driverScreens;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -53,12 +57,12 @@ class _AppShellState extends State<AppShell> {
             Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: isOperator ? AppColors.sky.withOpacity(0.15) : AppColors.emerald.withOpacity(0.15),
+                color: isShowingOperator ? AppColors.sky.withOpacity(0.15) : AppColors.emerald.withOpacity(0.15),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
-                isOperator ? FluentIcons.building_24_filled : FluentIcons.flash_24_filled,
-                color: isOperator ? AppColors.sky : AppColors.emerald,
+                isShowingOperator ? FluentIcons.building_24_filled : FluentIcons.flash_24_filled,
+                color: isShowingOperator ? AppColors.sky : AppColors.emerald,
                 size: 18,
               ),
             ),
@@ -80,15 +84,15 @@ class _AppShellState extends State<AppShell> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: isOperator ? AppColors.sky.withOpacity(0.2) : AppColors.emerald.withOpacity(0.2),
+                        color: isShowingOperator ? AppColors.sky.withOpacity(0.2) : AppColors.emerald.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        isOperator ? 'CPO OPERATOR' : 'EV DRIVER',
+                        isShowingOperator ? 'CPO OPERATOR' : 'EV DRIVER',
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w800,
-                          color: isOperator ? AppColors.sky : AppColors.emerald,
+                          color: isShowingOperator ? AppColors.sky : AppColors.emerald,
                           letterSpacing: 0.5,
                         ),
                       ),
@@ -96,7 +100,7 @@ class _AppShellState extends State<AppShell> {
                   ],
                 ),
                 Text(
-                  auth.currentUser?.name ?? (isOperator ? 'CPO Control Room' : 'Unified EV Grid'),
+                  user?.name ?? (isShowingOperator ? 'CPO Control Room' : 'National EV Grid'),
                   style: const TextStyle(fontSize: 11, color: AppColors.textTertiary),
                 ),
               ],
@@ -104,23 +108,24 @@ class _AppShellState extends State<AppShell> {
           ],
         ),
         actions: [
-          // Role Quick Switcher Pill
-          TextButton.icon(
-            onPressed: () => auth.togglePreviewRole(),
-            icon: Icon(
-              isOperator ? FluentIcons.vehicle_car_profile_24_filled : FluentIcons.building_24_filled,
-              size: 16,
-              color: isOperator ? AppColors.emerald : AppColors.sky,
-            ),
-            label: Text(
-              isOperator ? 'Driver View' : 'CPO Mode',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: isOperator ? AppColors.emerald : AppColors.sky,
+          // Role Quick Switcher Pill: Shown ONLY to verified CPOs / Admins
+          if (hasCpoRole)
+            TextButton.icon(
+              onPressed: () => setState(() => _operatorViewActive = !_operatorViewActive),
+              icon: Icon(
+                isShowingOperator ? FluentIcons.vehicle_car_profile_24_filled : FluentIcons.building_24_filled,
+                size: 16,
+                color: isShowingOperator ? AppColors.emerald : AppColors.sky,
+              ),
+              label: Text(
+                isShowingOperator ? 'Driver View' : 'CPO Console',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: isShowingOperator ? AppColors.emerald : AppColors.sky,
+                ),
               ),
             ),
-          ),
           IconButton(
             icon: const Icon(FluentIcons.sign_out_24_regular, size: 20, color: AppColors.textTertiary),
             onPressed: () {
@@ -142,7 +147,7 @@ class _AppShellState extends State<AppShell> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex < currentScreens.length ? _currentIndex : 0,
         onTap: (idx) => setState(() => _currentIndex = idx),
-        items: isOperator
+        items: isShowingOperator
             ? const [
                 BottomNavigationBarItem(
                   icon: Icon(FluentIcons.building_24_regular),
