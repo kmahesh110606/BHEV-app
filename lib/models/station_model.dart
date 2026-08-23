@@ -63,6 +63,26 @@ class StationModel {
       amenities: json['amenities'] != null ? List<String>.from(json['amenities']) : ['Cafe', 'Restroom', 'WiFi', '24/7 Security'],
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'name': name,
+      'address': address,
+      'city': city,
+      'state': state,
+      'pincode': pincode,
+      'latitude': latitude,
+      'longitude': longitude,
+      'distanceKm': distanceKm,
+      'operator': operator?.toJson(),
+      'rating': rating,
+      'reliability': reliability?.toJson(),
+      'connectors': connectors.map((c) => c.toJson()).toList(),
+      'availableConnectors': availableConnectors,
+      'amenities': amenities,
+    };
+  }
 }
 
 class OperatorInfo {
@@ -80,6 +100,15 @@ class OperatorInfo {
       name: json['name']?.toString() ?? 'CPO Network',
       isMock: json['isMock'] == true,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'code': code,
+      'name': name,
+      'isMock': isMock,
+    };
   }
 }
 
@@ -118,6 +147,18 @@ class ConnectorModel {
       tariff: json['tariff'] != null ? TariffModel.fromJson(json['tariff'] as Map<String, dynamic>) : null,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'evseId': evseId,
+      'standard': standard,
+      'powerType': powerType,
+      'maxPowerKw': maxPowerKw,
+      'status': status,
+      'tariff': tariff?.toJson(),
+    };
+  }
 }
 
 class TariffModel {
@@ -144,6 +185,16 @@ class TariffModel {
       currency: json['currency']?.toString() ?? 'INR',
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'pricePerKwh': pricePerKwh,
+      'flatFee': flatFee,
+      'pricePerMin': pricePerMin,
+      'currency': currency,
+    };
+  }
 }
 
 class ReliabilityInfo {
@@ -169,5 +220,15 @@ class ReliabilityInfo {
       completionRate: json['completionRate']?.toString() ?? '98.8%',
       factors: json['factors'] != null ? List<String>.from(json['factors']) : const ['Uptime 35%', 'Completion Rate 25%'],
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'score': score,
+      'live': live,
+      'uptime': uptime,
+      'completionRate': completionRate,
+      'factors': factors,
+    };
   }
 }

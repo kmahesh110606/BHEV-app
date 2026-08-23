@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/offline_cache_service.dart';
 import '../models/station_model.dart';
 import '../theme/app_colors.dart';
 import '../widgets/glass_container.dart';
@@ -9,7 +12,7 @@ import '../widgets/station_preview_sheet.dart';
 import 'station_details.dart';
 import 'booking_screen.dart';
 
-/// Discover screen with city filter pills, connector search, and interactive station cards
+/// Discover screen with full interactive map, offline caching badge, and search filter pills
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -19,10 +22,16 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final MapController _mapController = MapController();
+
   List<StationModel> _stations = [];
   bool _isLoading = true;
+  bool _isMapView = true; // Toggle between Map View and List View
   String _selectedCity = 'All';
   String _selectedFilter = 'All'; // All, DC Fast, Type 2, Available
+  String? _cacheSyncStatus;
+  LatLng _mapCenter = const LatLng(12.9716, 77.5946); // Bengaluru default
+  double _mapZoom = 11.5;
 
   final List<String> _cities = ['All', 'Bengaluru', 'Delhi', 'Mumbai', 'Hyderabad', 'Chennai'];
   final List<String> _filters = ['All', '⚡ DC Fast (50kW+)', 'Type 2 AC', '🟢 Available Now'];
@@ -36,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _mapController.dispose();
     super.dispose();
   }
 
@@ -45,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
     List<StationModel> list;
 
     if (pos != null) {
+      _mapCenter = LatLng(pos.latitude, pos.longitude);
       list = await ApiService.getNearbyStations(latitude: pos.latitude, longitude: pos.longitude);
     } else {
       list = await ApiService.getStations(
@@ -53,8 +64,15 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
+    if (list.isNotEmpty && pos == null) {
+      _mapCenter = LatLng(list.first.latitude, list.first.longitude);
+    }
+
+    final syncTime = await OfflineCacheService.getLastSyncTime();
+
     setState(() {
       _stations = list;
+      _cacheSyncStatus = syncTime;
       _isLoading = false;
     });
   }
@@ -82,6 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showStationPreview(StationModel station) {
+    _mapController.move(LatLng(station.latitude, station.longitude), 14.0);
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -112,270 +131,337 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.background,
-      body: RefreshIndicator(
-        onRefresh: _loadStations,
-        color: AppColors.emerald,
-        child: CustomScrollView(
-          slivers: [
-            // Search Bar & Filters Header
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Search Input
-                    TextField(
-                      controller: _searchController,
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        hintText: 'Search stations, cities, or highways...',
-                        prefixIcon: const Icon(FluentIcons.search_24_regular, size: 20),
-                        suffixIcon: _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(FluentIcons.dismiss_24_regular, size: 18),
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() {});
-                                },
-                              )
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 14),
+      body: Stack(
+        children: [
+          // ── Background: Interactive Map View or List View ──
+          if (_isMapView)
+            _buildInteractiveMap(filtered)
+          else
+            _buildListView(filtered),
 
-                    // City Pills
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: _cities.map((city) {
-                          final selected = _selectedCity == city;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              label: Text(city),
-                              selected: selected,
-                              onSelected: (_) {
-                                setState(() => _selectedCity = city);
-                                _loadStations();
-                              },
-                              selectedColor: AppColors.emerald,
-                              backgroundColor: AppColors.surface,
-                              labelStyle: TextStyle(
-                                color: selected ? Colors.black : AppColors.textSecondary,
-                                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                                fontSize: 12,
-                              ),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              side: BorderSide(color: selected ? AppColors.emerald : AppColors.borderSubtle),
-                            ),
-                          );
-                        }).toList(),
-                      ),
+          // ── Top Floating Overlay: Search, Filters & Cache Badge ──
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Search Input with View Toggle
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.surface.withOpacity(0.92),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.borderSubtle),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.4),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 10),
+                    child: Row(
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(left: 14),
+                          child: Icon(FluentIcons.search_24_regular, size: 20, color: AppColors.emerald),
+                        ),
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            onChanged: (_) => setState(() {}),
+                            decoration: InputDecoration(
+                              hintText: 'Search 10,000+ national EV stations...',
+                              hintStyle: const TextStyle(fontSize: 13, color: AppColors.textTertiary),
+                              filled: false,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              suffixIcon: _searchController.text.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(FluentIcons.dismiss_24_regular, size: 16),
+                                      onPressed: () {
+                                        _searchController.clear();
+                                        setState(() {});
+                                      },
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        // View Toggle Pill (Map vs List)
+                        Container(
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            color: AppColors.surfaceElevated,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: IconButton(
+                            icon: Icon(
+                              _isMapView ? FluentIcons.list_24_filled : FluentIcons.map_24_filled,
+                              size: 18,
+                              color: AppColors.emerald,
+                            ),
+                            onPressed: () => setState(() => _isMapView = !_isMapView),
+                            tooltip: _isMapView ? 'Switch to List' : 'Switch to Map',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
 
-                    // Feature Filter Chips
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: _filters.map((filter) {
-                          final selected = _selectedFilter == filter;
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: FilterChip(
-                              label: Text(filter),
-                              selected: selected,
-                              onSelected: (_) => setState(() => _selectedFilter = filter),
-                              selectedColor: AppColors.surfaceElevated,
-                              backgroundColor: AppColors.surface,
-                              checkmarkColor: AppColors.emerald,
-                              labelStyle: TextStyle(
-                                color: selected ? AppColors.emerald : AppColors.textSecondary,
-                                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                                fontSize: 11,
-                              ),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              side: BorderSide(color: selected ? AppColors.emerald : AppColors.borderSubtle),
+                  // City Filter Chips
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _cities.map((city) {
+                        final selected = _selectedCity == city;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: ChoiceChip(
+                            label: Text(city),
+                            selected: selected,
+                            onSelected: (_) {
+                              setState(() => _selectedCity = city);
+                              _loadStations();
+                            },
+                            selectedColor: AppColors.emerald,
+                            backgroundColor: AppColors.surface.withOpacity(0.9),
+                            labelStyle: TextStyle(
+                              color: selected ? Colors.black : AppColors.textSecondary,
+                              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                              fontSize: 11,
                             ),
-                          );
-                        }).toList(),
-                      ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            side: BorderSide(color: selected ? AppColors.emerald : AppColors.borderSubtle),
+                          ),
+                        );
+                      }).toList(),
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Feature Filter Pills
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: _filters.map((filter) {
+                        final selected = _selectedFilter == filter;
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 6),
+                          child: FilterChip(
+                            label: Text(filter),
+                            selected: selected,
+                            onSelected: (_) => setState(() => _selectedFilter = filter),
+                            selectedColor: AppColors.surfaceElevated,
+                            backgroundColor: AppColors.surface.withOpacity(0.9),
+                            checkmarkColor: AppColors.emerald,
+                            labelStyle: TextStyle(
+                              color: selected ? AppColors.emerald : AppColors.textSecondary,
+                              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                              fontSize: 10,
+                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            side: BorderSide(color: selected ? AppColors.emerald : AppColors.borderSubtle),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
               ),
             ),
+          ),
 
-            // Station Cards List
-            if (_isLoading)
-              const SliverFillRemaining(
-                child: Center(
-                  child: CircularProgressIndicator(color: AppColors.emerald),
-                ),
-              )
-            else if (filtered.isEmpty)
-              SliverFillRemaining(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(FluentIcons.vehicle_car_profile_24_regular, size: 48, color: AppColors.textTertiary),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'No stations found matching filters',
-                        style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+          // ── Bottom Floating Badge: Offline Cache Status & Count ──
+          Positioned(
+            bottom: 20,
+            left: 16,
+            right: 16,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface.withOpacity(0.92),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.borderSubtle),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 8,
                       ),
-                      const SizedBox(height: 8),
-                      TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _selectedCity = 'All';
-                            _selectedFilter = 'All';
-                            _searchController.clear();
-                          });
-                          _loadStations();
-                        },
-                        child: const Text('Reset Filters'),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(FluentIcons.cloud_checkmark_24_filled, size: 14, color: AppColors.emerald),
+                      const SizedBox(width: 6),
+                      Text(
+                        '${filtered.length} Stations · ${_cacheSyncStatus ?? "Offline Cached"}',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                       ),
                     ],
                   ),
                 ),
-              )
-            else
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, idx) {
-                      final station = filtered[idx];
-                      final isAvail = station.availableConnectors > 0;
+                FloatingActionButton.small(
+                  backgroundColor: AppColors.surfaceElevated,
+                  foregroundColor: AppColors.emerald,
+                  onPressed: _loadStations,
+                  child: const Icon(FluentIcons.arrow_sync_24_regular, size: 18),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
-                      return GlassContainer(
-                        margin: const EdgeInsets.only(bottom: 14),
-                        onTap: () => _showStationPreview(station),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Card Top: Name & Rating
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        station.name,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w800,
-                                          letterSpacing: -0.02,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '${station.city} · ${station.operator?.name ?? 'CPO Network'}',
-                                        style: const TextStyle(fontSize: 12, color: AppColors.textTertiary),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.amber.withOpacity(0.15),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(FluentIcons.star_24_filled, color: AppColors.amber, size: 12),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        station.rating.toStringAsFixed(1),
-                                        style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.amber, fontSize: 12),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
+  // ── Widget: Interactive FlutterMap with Dark Tiles & Custom Pins ──
+  Widget _buildInteractiveMap(List<StationModel> stations) {
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: _mapCenter,
+        initialZoom: _mapZoom,
+        minZoom: 4,
+        maxZoom: 18,
+      ),
+      children: [
+        // CartoDB Dark Matter / OSM Tile Layer
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'in.chargegrid.urjaa',
+          tileBuilder: (context, tileWidget, tile) {
+            // Apply Obsidian dark invert matrix filter for seamless theme match
+            return ColorFiltered(
+              colorFilter: const ColorFilter.matrix([
+                -0.85, 0, 0, 0, 240,
+                0, -0.85, 0, 0, 240,
+                0, 0, -0.85, 0, 240,
+                0, 0, 0, 1, 0,
+              ]),
+              child: tileWidget,
+            );
+          },
+        ),
 
-                            // Connectors Strip
-                            Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: isAvail ? AppColors.emerald.withOpacity(0.15) : AppColors.crimson.withOpacity(0.15),
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(color: isAvail ? AppColors.emerald.withOpacity(0.3) : AppColors.crimson.withOpacity(0.3)),
-                                  ),
-                                  child: Text(
-                                    isAvail ? '● ${station.availableConnectors}/${station.connectors.length} Available' : '🔴 All Bays Occupied',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: isAvail ? AppColors.emerald : AppColors.crimson,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.surfaceElevated,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    '⚡ Up to ${station.maxPowerKw} kW',
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.sky),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
+        // Station Markers Layer
+        MarkerLayer(
+          markers: stations.map((s) {
+            final isAvail = s.availableConnectors > 0;
+            final isFast = s.isFastDc;
+            final pinColor = isAvail
+                ? (isFast ? AppColors.emerald : AppColors.sky)
+                : AppColors.crimson;
 
-                            // Bottom Strip: Pricing & Reserve Button
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Text(
-                                  '₹${station.baseTariffPerKwh}/kWh',
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.emerald,
-                                  ),
-                                ),
-                                ElevatedButton(
-                                  onPressed: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => BookingScreen(station: station)),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                    minimumSize: const Size(0, 36),
-                                  ),
-                                  child: const Text('Book Slot', style: TextStyle(fontSize: 13)),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                    childCount: filtered.length,
+            return Marker(
+              point: LatLng(s.latitude, s.longitude),
+              width: 44,
+              height: 44,
+              child: GestureDetector(
+                onTap: () => _showStationPreview(s),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: pinColor, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: pinColor.withOpacity(0.4),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Icon(
+                      isFast ? FluentIcons.flash_24_filled : FluentIcons.vehicle_car_profile_24_filled,
+                      color: pinColor,
+                      size: 20,
+                    ),
                   ),
                 ),
               ),
-          ],
+            );
+          }).toList(),
         ),
-      ),
+      ],
+    );
+  }
+
+  // ── Widget: List View fallback ──
+  Widget _buildListView(List<StationModel> stations) {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator(color: AppColors.emerald));
+    }
+
+    return CustomScrollView(
+      slivers: [
+        const SliverToBoxAdapter(child: SizedBox(height: 140)),
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 80),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, idx) {
+                final station = stations[idx];
+                final isAvail = station.availableConnectors > 0;
+
+                return GlassContainer(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  onTap: () => _showStationPreview(station),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              station.name,
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Text('${station.rating.toStringAsFixed(1)} ⭐',
+                              style: const TextStyle(fontWeight: FontWeight.w800, color: AppColors.amber)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text('${station.address}, ${station.city}',
+                          style: const TextStyle(fontSize: 12, color: AppColors.textTertiary)),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            isAvail ? '● ${station.availableConnectors}/${station.connectors.length} Free' : '🔴 Occupied',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: isAvail ? AppColors.emerald : AppColors.crimson,
+                            ),
+                          ),
+                          Text(
+                            '₹${station.baseTariffPerKwh}/kWh',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.emerald),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+              childCount: stations.length,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

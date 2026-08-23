@@ -5,6 +5,7 @@ import '../models/station_model.dart';
 import '../models/booking_model.dart';
 import '../models/session_model.dart';
 import 'auth_service.dart';
+import 'offline_cache_service.dart';
 
 /// REST API Client connecting mobile app to URJAA backend and website infrastructure
 class ApiService {
@@ -16,7 +17,7 @@ class ApiService {
     };
   }
 
-  // ── Stations Discovery ──
+  // ── Stations Discovery & Offline Cache ──
   static Future<List<StationModel>> getStations({String? city, String? search}) async {
     try {
       final uri = Uri.parse(ApiConfig.stations).replace(
@@ -26,14 +27,28 @@ class ApiService {
         },
       );
 
-      final res = await http.get(uri, headers: _headers);
+      final res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final json = jsonDecode(res.body);
         final list = json['data'] as List<dynamic>? ?? [];
-        return list.map((item) => StationModel.fromJson(item as Map<String, dynamic>)).toList();
+        final stations = list.map((item) => StationModel.fromJson(item as Map<String, dynamic>)).toList();
+        if (stations.isNotEmpty && (city == null || city.isEmpty) && (search == null || search.isEmpty)) {
+          OfflineCacheService.saveStations(stations);
+        }
+        return stations;
       }
     } catch (_) {}
-    return [];
+
+    // Offline fallback from local cache
+    final cached = await OfflineCacheService.getCachedStations();
+    if (city != null && city.isNotEmpty && city != 'All') {
+      return cached.where((s) => s.city.toLowerCase().contains(city.toLowerCase())).toList();
+    }
+    if (search != null && search.isNotEmpty) {
+      final q = search.toLowerCase();
+      return cached.where((s) => s.name.toLowerCase().contains(q) || s.address.toLowerCase().contains(q) || s.city.toLowerCase().contains(q)).toList();
+    }
+    return cached;
   }
 
   static Future<List<StationModel>> getNearbyStations({
@@ -50,19 +65,25 @@ class ApiService {
         },
       );
 
-      final res = await http.get(uri, headers: _headers);
+      final res = await http.get(uri, headers: _headers).timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final json = jsonDecode(res.body);
         final list = json['data'] as List<dynamic>? ?? [];
-        return list.map((item) => StationModel.fromJson(item as Map<String, dynamic>)).toList();
+        final stations = list.map((item) => StationModel.fromJson(item as Map<String, dynamic>)).toList();
+        if (stations.isNotEmpty) {
+          OfflineCacheService.saveStations(stations);
+        }
+        return stations;
       }
     } catch (_) {}
-    return [];
+
+    // Offline fallback
+    return await OfflineCacheService.getCachedStations();
   }
 
   static Future<StationModel?> getStationDetails(String stationId) async {
     try {
-      final res = await http.get(Uri.parse(ApiConfig.stationDetails(stationId)), headers: _headers);
+      final res = await http.get(Uri.parse(ApiConfig.stationDetails(stationId)), headers: _headers).timeout(const Duration(seconds: 4));
       if (res.statusCode == 200) {
         final json = jsonDecode(res.body);
         if (json['data'] != null) {
@@ -70,7 +91,10 @@ class ApiService {
         }
       }
     } catch (_) {}
-    return null;
+
+    // Offline fallback from local cache
+    final cached = await OfflineCacheService.getCachedStations();
+    return cached.firstWhere((s) => s.id == stationId, orElse: () => cached.first);
   }
 
   // ── Bookings & Reservations ──

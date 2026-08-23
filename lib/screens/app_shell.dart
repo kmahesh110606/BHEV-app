@@ -7,6 +7,7 @@ import 'home_screen.dart';
 import 'qr_verification_screen.dart';
 import 'sessions_screen.dart';
 import 'kiosk_screen.dart';
+import 'profile_screen.dart';
 import 'operator/operator_home_screen.dart';
 import 'login_screen.dart';
 
@@ -26,12 +27,12 @@ class _AppShellState extends State<AppShell> {
     final auth = context.watch<AuthService>();
     final isOperator = auth.isOperator;
 
-    // Driver Navigation Screens
+    // Driver Navigation Screens (Kiosk removed per user request)
     final List<Widget> driverScreens = [
       const HomeScreen(),
       const QrVerificationScreen(),
       const SessionsScreen(),
-      const KioskScreen(),
+      const ProfileScreen(),
     ];
 
     // Operator Navigation Screens
@@ -173,7 +174,7 @@ class _AppShellState extends State<AppShell> {
                 BottomNavigationBarItem(
                   icon: Icon(FluentIcons.qr_code_24_regular),
                   activeIcon: Icon(FluentIcons.qr_code_24_filled),
-                  label: 'Arrival QR',
+                  label: 'Scan QR',
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(FluentIcons.flash_24_regular),
@@ -181,9 +182,9 @@ class _AppShellState extends State<AppShell> {
                   label: 'Charging',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(FluentIcons.gauge_24_regular),
-                  activeIcon: Icon(FluentIcons.gauge_24_filled),
-                  label: 'Kiosk Sim',
+                  icon: Icon(FluentIcons.person_24_regular),
+                  activeIcon: Icon(FluentIcons.person_24_filled),
+                  label: 'Profile',
                 ),
               ],
       ),
